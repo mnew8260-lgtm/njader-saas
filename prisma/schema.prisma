@@ -1,0 +1,247 @@
+// prisma/schema.prisma
+// NJADDER SaaS — Telegram login flow (SQLite-compatible for local dev)
+// To deploy on Vercel: change provider to "postgresql" and url to env("POSTGRES_URL")
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Telegram login models
+// ============================================================================
+
+/// A Telegram account/session managed by the tool
+/// (session is stored as a STRING — no .session files needed!)
+model TelegramAccount {
+  id            String   @id @default(cuid())
+  phone         String   @unique
+  apiId         String
+  apiHash       String
+  sessionString String?
+  sessionName   String?
+  status        String   @default("idle")
+  fullName      String?
+  username      String?
+  deviceModel   String?
+  isClone       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  licenseId     String?
+  license       License? @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+  ownerId       String?
+  owner         User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  activities    ActivityLog[]
+}
+
+/// An API credential pair (api_id, api_hash) for rotation
+model ApiCredential {
+  id        String   @id @default(cuid())
+  apiId     String   @unique
+  apiHash   String
+  label     String?
+  enabled   Boolean  @default(true)
+  usedCount Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ============================================================================
+// SaaS models
+// ============================================================================
+
+model License {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  holder       String?
+  email        String?
+  status       String   @default("active")
+  plan         String   @default("pro")
+  maxDevices   Int      @default(1)
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  activatedAt  DateTime?
+  lastUsedAt   DateTime?
+  notes        String?
+  accounts     TelegramAccount[]
+  activities   ActivityLog[]
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  email              String?  @unique
+  phone              String?  @unique
+  username           String?  @unique
+  passwordHash       String
+  role              String   @default("user")
+  displayName        String?
+  trialStartedAt    DateTime? @default(now())
+  trialEndsAt        DateTime?
+  trialUsed          Boolean   @default(false)
+  deviceFingerprint String?  @unique
+  userAgent         String?
+  subscriptionId    String?  @unique
+  subscription      Subscription?
+  sessions          UserSession[]
+  telegramAccounts  TelegramAccount[]
+  orders            Order[]
+  activities        ActivityLog[]
+  isBanned          Boolean  @default(false)
+  bannedReason      String?
+  bannedAt          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lastLoginAt       DateTime?
+}
+
+model UserSession {
+  id          String   @id @default(cuid())
+  userId      String
+  token       String   @unique
+  deviceName  String?
+  ipAddress   String?
+  userAgent   String?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime? @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  plan        String
+  price       Float
+  currency    String   @default("USD")
+  startedAt   DateTime @default(now())
+  endsAt      DateTime
+  status      String   @default("active")
+  orderId     String?
+  order       Order?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id               String   @id @default(cuid())
+  orderNumber      String   @unique
+  userId           String
+  plan             String
+  price            Float
+  currency         String   @default("USD")
+  status           String   @default("pending")
+  paymentMethod    String?
+  paymentReference String?
+  paymentUrl       String?
+  confirmedAt      DateTime?
+  confirmedBy      String?
+  subscriptionId   String?  @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription     Subscription? @relation(fields: [subscriptionId], references: [id])
+}
+
+model SaaSSetting {
+  id        String  @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  targetId  String?
+  detail    String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
+
+model Feature {
+  id            String   @id
+  label         String?
+  description   String?
+  enabled       Boolean  @default(true)
+  planRequired String   @default("free")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Webhook {
+  id          String   @id @default(cuid())
+  userId      String
+  url         String
+  events      String
+  secret      String
+  isActive    Boolean  @default(true)
+  lastFiredAt DateTime?
+  lastStatus  Int?
+  failureCount Int     @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model UserQuota {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  used         Int      @default(0)
+  limit        Int      @default(1000)
+  periodStart  DateTime @default(now())
+  lastAction   String?
+  lastActionAt DateTime?
+  updatedAt    DateTime @updatedAt
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  detail    String?
+  category  String?
+  severity  String   @default("info")
+  createdAt DateTime @default(now())
+  licenseId String?
+  license   License? @relation(fields: [licenseId], references: [id], onDelete: SetNull)
+  accountId String?
+  account   TelegramAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model DevSetting {
+  id    String @id
+  value String
+}
+
+model Broadcast {
+  id         String   @id @default(cuid())
+  message    String
+  audience   String   @default("all")
+  sentAt     DateTime @default(now())
+  sentToCount Int     @default(0)
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  keys      String
+  userId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model NotificationQueue {
+  id            String   @id @default(cuid())
+  title         String
+  body          String
+  url           String?
+  audience      String   @default("all")
+  scheduledFor  DateTime?
+  sentAt        DateTime?
+  status        String   @default("queued")
+  createdAt     DateTime @default(now())
+}

@@ -1,0 +1,108 @@
+import Link from 'next/link';
+import { getCurrentUser } from '@/lib/auth';
+import { Phone, KeyRound, Shield, ArrowLeft, Activity, Zap } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+
+export const dynamic = 'force-dynamic';
+
+const features = [
+  {
+    icon: <Phone className="size-5" />,
+    title: 'تسجيل دخول بخطوة واحدة',
+    desc: 'أدخل رقم الهاتف فقط — لا حاجة لإدخال api_id أو api_hash.',
+  },
+  {
+    icon: <Shield className="size-5" />,
+    title: 'آمن ومشفّر',
+    desc: 'يتم تخزين جلسات تيليجرام كـ StringSession بأمان في قاعدة البيانات.',
+  },
+  {
+    icon: <KeyRound className="size-5" />,
+    title: 'API Pool تلقائي',
+    desc: 'يدور النظام بين عدة API credentials لتجنب FloodWait.',
+  },
+  {
+    icon: <Zap className="size-5" />,
+    title: 'Serverless جاهز',
+    desc: 'يعمل على Vercel و Render ومحلياً بدون أي إعدادات معقدة.',
+  },
+];
+
+export default async function Home() {
+  const user = await getCurrentUser();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-zinc-50 via-zinc-100 to-zinc-50 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
+      <div className="container mx-auto max-w-5xl px-4 py-6">
+        <header className="flex items-center justify-between mb-12">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="size-10 rounded-xl bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold grid place-items-center">N</div>
+            <span className="text-xl font-bold">NJADDER</span>
+          </Link>
+          <nav className="flex items-center gap-2">
+            {user ? (
+              <Button asChild>
+                <Link href="/dashboard">لوحة التحكم <ArrowLeft className="size-4" /></Link>
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" asChild><Link href="/login">دخول</Link></Button>
+                <Button asChild><Link href="/signup">إنشاء حساب</Link></Button>
+              </>
+            )}
+          </nav>
+        </header>
+
+        <section className="text-center py-12 sm:py-20">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs mb-6">
+            <Activity className="size-3" /> يعمل فعلياً · جاهز للإنتاج
+          </div>
+          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight mb-4">
+            تسجيل دخول تيليجرام
+            <br />
+            <span className="text-emerald-600 dark:text-emerald-400">بدون تعقيد</span>
+          </h1>
+          <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+            منصة SaaS لإدارة حسابات تيليجرام. تسجيل دخول آمن بخطوات بسيطة،
+            تخزين الجلسات في قاعدة بيانات مشفّرة، وإدارة API credentials تلقائياً.
+          </p>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            {user ? (
+              <Button size="lg" asChild className="gap-1.5">
+                <Link href="/telegram-login">إضافة حساب تيليجرام <ArrowLeft className="size-4" /></Link>
+              </Button>
+            ) : (
+              <>
+                <Button size="lg" asChild className="gap-1.5">
+                  <Link href="/signup">ابدأ الآن مجاناً <ArrowLeft className="size-4" /></Link>
+                </Button>
+                <Button size="lg" variant="outline" asChild>
+                  <Link href="/login">لدي حساب بالفعل</Link>
+                </Button>
+              </>
+            )}
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pb-16">
+          {features.map((f) => (
+            <Card key={f.title}>
+              <CardHeader className="pb-3">
+                <div className="size-10 rounded-lg bg-zinc-100 dark:bg-zinc-800 grid place-items-center mb-2">{f.icon}</div>
+                <CardTitle className="text-base">{f.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CardDescription>{f.desc}</CardDescription>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
+
+        <footer className="py-8 text-center text-xs text-muted-foreground border-t">
+          © 2026 NJADDER SaaS · <a href="https://t.me/NMDDER_DEV" target="_blank" rel="noreferrer" className="text-primary underline">@NMDDER_DEV</a>
+        </footer>
+      </div>
+    </div>
+  );
+}

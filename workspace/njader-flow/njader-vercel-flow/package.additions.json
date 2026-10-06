@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "telegram": "^2.22.2",
+    "@vercel/kv": "^1.0.1",
+    "@vercel/postgres": "^0.10.0"
+  },
+  "scripts": {
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "create-owner": "tsx scripts/create-owner-vercel.ts"
+  }
+}
