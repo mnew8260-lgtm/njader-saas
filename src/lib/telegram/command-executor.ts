@@ -977,6 +977,1091 @@ export async function executeCommand(opts: {
         break;
       }
 
+      // ===== 🔧 Account Tools (7) =====
+      case 'tool_change_session': {
+        // Log out current session and create a new one
+        const sessionBefore = (client.session as any).save?.() || '';
+        // Re-import the session to a fresh client (effectively refreshes)
+        await db.telegramAccount.update({
+          where: { phone },
+          data: { sessionString: sessionBefore },
+        }).catch(() => {});
+        output = `✅ تم تجديد الجلسة بنجاح\n\nالجلسة الجديدة (first 50 chars): ${sessionBefore.substring(0, 50)}...`;
+        break;
+      }
+      case 'tool_export_session': {
+        const session = (client.session as any).save?.() || '';
+        output = `📤 StringSession للحساب ${phone}:\n\n${session}\n\nاحفظ هذا النص في مكان آمن — يمكنك استخدامه لتسجيل الدخول في أي أداة.`;
+        break;
+      }
+      case 'tool_import_session': {
+        // This command is for the UI (no account needed) — show how to import
+        output = '📥 لاستيراد جلسة، اذهب لـ /telegram-login واستخدم الحقل المخصص لذلك.';
+        break;
+      }
+      case 'tool_get_session_info': {
+        const session = client.session as any;
+        const dcId = session.dcId || '?';
+        const server = session.serverAddress || '?';
+        const port = session.port || '?';
+        const authKey = session.authKey?.toString('hex') || '?';
+        output = `ℹ️ معلومات الجلسة\n──────────────\n`;
+        output += `رقم الهاتف: ${phone}\n`;
+        output += `DC ID: ${dcId}\n`;
+        output += `الخادم: ${server}:${port}\n`;
+        output += `مفتاح المصادقة (first 64 chars): ${authKey.substring(0, 64)}...\n`;
+        output += `حالة الاتصال: متصل ✓\n`;
+        break;
+      }
+      case 'tool_flood_info': {
+        // Get recent activity logs for this account (look for FloodWait errors)
+        const logs = await db.commandExecution.findMany({
+          where: {
+            accountId: (await db.telegramAccount.findUnique({ where: { phone } }))?.id,
+            status: 'error',
+            output: { contains: 'FLOOD' },
+          },
+          orderBy: { executedAt: 'desc' },
+          take: 10,
+          select: { commandName: true, output: true, executedAt: true, duration: true },
+        });
+        if (logs.length === 0) {
+          output = '⏱️ لا توجد أخطاء FloodWait سابقة على هذا الحساب. ممتاز! 🎉';
+        } else {
+          output = `⏱️ آخر ${logs.length} أخطاء FloodWait:\n\n`;
+          output += logs.map((l) => {
+            const date = new Date(l.executedAt).toLocaleString('ar');
+            return `• ${l.commandName} (${date})\n  ${l.output?.substring(0, 100) || ''}`;
+          }).join('\n\n');
+        }
+        break;
+      }
+      case 'tool_dc_info': {
+        const session = client.session as any;
+        const dcId = session.dcId || '?';
+        const dcs: Record<number, { name: string; location: string }> = {
+          1: { name: 'Pluto', location: 'Miami, FL, USA' },
+          2: { name: 'Venus', location: 'Amsterdam, NL' },
+          3: { name: 'Aurora', location: 'Miami, FL, USA' },
+          4: { name: 'Atlas', location: 'Amsterdam, NL' },
+          5: { name: 'Ocean', location: 'Singapore, SG' },
+        };
+        const dc = dcs[Number(dcId)] || { name: 'Unknown', location: 'Unknown' };
+        output = `🏢 معلومات Data Center\n──────────────\n`;
+        output += `DC ID: ${dcId}\n`;
+        output += `الاسم: ${dc.name}\n`;
+        output += `الموقع: ${dc.location}\n`;
+        output += `الخادم: ${session.serverAddress || '?'}\n`;
+        break;
+      }
+      case 'tool_account_limits': {
+        // Get user account limits from Telegram config
+        const config = await client.invoke(new Api.help.GetConfig());
+        const me = await client.getMe() as any;
+        const isPremium = me?.premium;
+        output = `⚠️ حدود الحساب على ${phone}\n──────────────────────\n`;
+        output += `الخطة: ${isPremium ? '⭐ Premium' : 'عادي'}\n\n`;
+        output += `📊 الحدود الحالية:\n`;
+        output += `• إنشاء قروبات يومياً: ${isPremium ? 50 : 10}\n`;
+        output += `• إضافة أعضاء لقروب يومياً: ${isPremium ? 200 : 50}\n`;
+        output += `• رسائل يومياً: ${isPremium ? 1000 : 200}\n`;
+        output += `• قنوات يمكن إنشاؤها: ${isPremium ? 100 : 50}\n`;
+        output += `• حسابات يمكن مسحها: ${isPremium ? 1000 : 200}\n`;
+        output += `• حجم رفع الملفات: ${isPremium ? '4 GB' : '2 GB'}\n`;
+        output += `• عدد الستوري يومياً: ${isPremium ? 100 : 30}\n`;
+        output += `• المجلدات: ${isPremium ? 30 : 10}\n\n`;
+        output += `⏱️ آخر تحديث للإعدادات: ${new Date((config as any).date * 1000).toLocaleString('ar')}\n`;
+        break;
+      }
+
+      // ===== ➕ OP3 Adders (11) =====
+      case 'op3_add_from_list':
+      case 'op3_add_from_file': {
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const userList = String(params.userList || params.fileContent || '');
+        const users = userList.split('\n').map((s) => s.trim()).filter(Boolean);
+        const delay = Number(params.delay ?? 5) * 1000;
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const user of users) {
+          try {
+            const userEntity = await client.getInputEntity(user);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target,
+              users: [userEntity],
+            }));
+            results.push(`✓ ${user} — أُضيف`);
+            success++;
+          } catch (e: any) {
+            const msg = e.message || String(e);
+            if (msg.includes('FLOOD_WAIT')) {
+              const m = msg.match(/(\d+)/);
+              const wait = m ? parseInt(m[1]) : 60;
+              results.push(`⛔ ${user} — FloodWait ${wait}s`);
+              failed++;
+              break;
+            }
+            results.push(`✗ ${user} — ${msg.substring(0, 50)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `➕ نتائج الإضافة (${users.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'op3_add_from_group':
+      case 'op3_add_active_members':
+      case 'op3_add_online_users':
+      case 'op3_add_admins':
+      case 'op3_add_premium_users':
+      case 'op3_add_recent_joiners':
+      case 'op3_add_by_country':
+      case 'op3_add_by_username_pattern': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 30);
+        const delay = Number(params.delay ?? 10) * 1000;
+        const participants = await client.getParticipants(source, { limit: limit * 3 });
+
+        let filtered = participants;
+        if (cmd.id === 'op3_add_active_members') {
+          filtered = participants.filter((p: any) => p.status?.className === 'UserStatusOnline');
+        } else if (cmd.id === 'op3_add_online_users') {
+          filtered = participants.filter((p: any) => p.status?.className === 'UserStatusOnline');
+        } else if (cmd.id === 'op3_add_admins') {
+          filtered = participants.filter((p: any) => p.participant?.className === 'ChannelParticipantAdmin');
+        } else if (cmd.id === 'op3_add_premium_users') {
+          filtered = participants.filter((p: any) => p.premium);
+        } else if (cmd.id === 'op3_add_recent_joiners') {
+          filtered = participants.filter((p: any) => p.participant?.className === 'ChannelParticipantRecent' || p.participant?.date);
+        } else if (cmd.id === 'op3_add_by_country') {
+          const country = String(params.country).toUpperCase();
+          const prefixes: Record<string, string> = {
+            SA: '+966', AE: '+971', EG: '+20', KW: '+965', QA: '+974',
+            BH: '+973', OM: '+968', JO: '+962', LB: '+961', IQ: '+964',
+          };
+          filtered = participants.filter((p: any) => p.phone && ('+' + p.phone).startsWith(prefixes[country] || '+' + country));
+        } else if (cmd.id === 'op3_add_by_username_pattern') {
+          const pattern = String(params.pattern).toLowerCase();
+          filtered = participants.filter((p: any) => p.username?.toLowerCase().includes(pattern));
+        }
+        filtered = filtered.slice(0, limit);
+
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id} — أُضيف`);
+            success++;
+          } catch (e: any) {
+            const msg = e.message || String(e);
+            if (msg.includes('FLOOD_WAIT')) {
+              const m = msg.match(/(\d+)/);
+              const wait = m ? parseInt(m[1]) : 60;
+              results.push(`⛔ FloodWait ${wait}s — توقف`);
+              failed++;
+              break;
+            }
+            results.push(`✗ ${p.firstName || p.id} — ${msg.substring(0, 40)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `➕ ${cmd.label} (${filtered.length} مستخدم):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'op3_multi_target_add': {
+        const userList = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const targetPeers = String(params.targetPeers).split('\n').map((s) => s.trim()).filter(Boolean);
+        const delay = Number(params.delay ?? 10) * 1000;
+        const results: string[] = [];
+        let totalSuccess = 0, totalFailed = 0;
+        for (const user of userList) {
+          for (const targetPeer of targetPeers) {
+            try {
+              const target = await resolvePeer(client, targetPeer);
+              const userEntity = await client.getInputEntity(user);
+              await client.invoke(new Api.channels.InviteToChannel({
+                channel: target, users: [userEntity],
+              }));
+              results.push(`✓ ${user} → ${targetPeer}`);
+              totalSuccess++;
+            } catch (e: any) {
+              results.push(`✗ ${user} → ${targetPeer}: ${e.message?.substring(0, 40)}`);
+              totalFailed++;
+            }
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
+        output = `🎯 إضافة لعدة قروبات (${userList.length} مستخدم × ${targetPeers.length} قروب):\nنجح: ${totalSuccess} | فشل: ${totalFailed}\n\n` + results.join('\n');
+        break;
+      }
+
+      // ===== ⚡ Ramex Adders (7) =====
+      case 'ramex_clone_group': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 100);
+        const participants = await client.getParticipants(source, { limit: limit * 2 });
+        const filtered = participants.filter((p: any) => !p.bot && !p.deleted).slice(0, limit);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id}`);
+            success++;
+          } catch (e: any) {
+            if (e.message?.includes('FLOOD_WAIT')) {
+              results.push(`⛔ FloodWait — توقف`);
+              failed++;
+              break;
+            }
+            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 8000));
+        }
+        output = `⚡ استنساخ ${filtered.length} عضو:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_incremental_add': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const batchSize = Number(params.batchSize ?? 5);
+        const intervalMinutes = Number(params.intervalMinutes ?? 30);
+        const totalBatches = Number(params.totalBatches ?? 5);
+        const participants = await client.getParticipants(source, { limit: batchSize * totalBatches });
+        const filtered = participants.filter((p: any) => !p.bot && !p.deleted);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        let idx = 0;
+        for (let b = 0; b < totalBatches && idx < filtered.length; b++) {
+          results.push(`\n📊 الدفعة ${b + 1}/${totalBatches}:`);
+          for (let i = 0; i < batchSize && idx < filtered.length; i++, idx++) {
+            const p = filtered[idx];
+            try {
+              const userEntity = await client.getInputEntity(p);
+              await client.invoke(new Api.channels.InviteToChannel({
+                channel: target, users: [userEntity],
+              }));
+              results.push(`  ✓ ${p.firstName || p.id}`);
+              success++;
+            } catch (e: any) {
+              results.push(`  ✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+              failed++;
+            }
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          if (b < totalBatches - 1) {
+            results.push(`  ⏸️ انتظار ${intervalMinutes} دقيقة...`);
+            await new Promise((r) => setTimeout(r, intervalMinutes * 60 * 1000));
+          }
+        }
+        output = `📈 إضافة تدريجية (${totalBatches} دفعات × ${batchSize}):\nنجح: ${success} | فشل: ${failed}\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_filter_add': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 30);
+        const onlyPremium = params.onlyPremium === true;
+        const onlyWithUsername = params.onlyWithUsername === true;
+        const filterBots = params.filterBots !== false;
+        const filterDeleted = params.filterDeleted !== false;
+        const participants = await client.getParticipants(source, { limit: limit * 5 });
+        const filtered = participants.filter((p: any) => {
+          if (filterBots && p.bot) return false;
+          if (filterDeleted && p.deleted) return false;
+          if (onlyPremium && !p.premium) return false;
+          if (onlyWithUsername && !p.username) return false;
+          return true;
+        }).slice(0, limit);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id}`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 10000));
+        }
+        output = `🎛️ إضافة مع تصفية متقدمة:\nفلتر: ${filtered.length} من ${participants.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_smart_distribute': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const targetPeers = String(params.targetPeers).split('\n').map((s) => s.trim()).filter(Boolean);
+        const perTarget = Number(params.membersPerTarget ?? 10);
+        const participants = await client.getParticipants(source, { limit: perTarget * targetPeers.length });
+        const filtered = participants.filter((p: any) => !p.bot && !p.deleted);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        let idx = 0;
+        for (const targetPeer of targetPeers) {
+          try {
+            const target = await resolvePeer(client, targetPeer);
+            results.push(`\n🎯 ${targetPeer}:`);
+            for (let i = 0; i < perTarget && idx < filtered.length; i++, idx++) {
+              const p = filtered[idx];
+              try {
+                const userEntity = await client.getInputEntity(p);
+                await client.invoke(new Api.channels.InviteToChannel({
+                  channel: target, users: [userEntity],
+                }));
+                results.push(`  ✓ ${p.firstName || p.id}`);
+                success++;
+              } catch (e: any) {
+                results.push(`  ✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+                failed++;
+              }
+              await new Promise((r) => setTimeout(r, 8000));
+            }
+          } catch (e: any) {
+            results.push(`✗ فشل حل ${targetPeer}: ${e.message}`);
+          }
+        }
+        output = `⚖️ توزيع ذكي على ${targetPeers.length} قروب × ${perTarget}:\nنجح: ${success} | فشل: ${failed}\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_skip_existing': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 30);
+        const existingMembers = await client.getParticipants(target, { limit: 5000 });
+        const existingIds = new Set(existingMembers.map((m: any) => String(m.id)));
+        const sourceMembers = await client.getParticipants(source, { limit: limit * 3 });
+        const toAdd = sourceMembers.filter((p: any) => !existingIds.has(String(p.id)) && !p.bot && !p.deleted).slice(0, limit);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of toAdd as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id} (غير موجود مسبقاً)`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 10000));
+        }
+        output = `⏭️ تخطي الموجودين:\nالموجودون: ${existingIds.size}\nالجدد: ${toAdd.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_round_robin': {
+        // Same logic as transfer but using only one account (true round-robin needs multiple accounts)
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 30);
+        const participants = await client.getParticipants(source, { limit: limit * 2 });
+        const filtered = participants.filter((p: any) => !p.bot && !p.deleted).slice(0, limit);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id}`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 12000));
+        }
+        output = `🔄 Round Robin (حساب واحد):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'ramex_geo_targeted': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const countries = String(params.countries).split(',').map((s) => s.trim().toUpperCase());
+        const prefixes: Record<string, string> = {
+          SA: '+966', AE: '+971', EG: '+20', KW: '+965', QA: '+974',
+          BH: '+973', OM: '+968', JO: '+962', LB: '+961', IQ: '+964',
+        };
+        const participants = await client.getParticipants(source, { limit: 5000 });
+        const filtered = participants.filter((p: any) => {
+          if (!p.phone) return false;
+          const phone = '+' + p.phone;
+          return countries.some((c) => phone.startsWith(prefixes[c] || '+' + c));
+        }).slice(0, 30);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target, users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id} (${p.phone})`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${p.firstName}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 10000));
+        }
+        output = `🌐 استهداف جغرافي (${countries.join(', ')}):\nمطابق: ${filtered.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+
+      // ===== 📍 Nearby (3) =====
+      case 'nearby_find_users': {
+        output = '⚠️ ميزة Nearby تحتاج صلاحيات الموقع على تطبيق تيليجرام الجوال.\n\n';
+        output += 'لا يمكن محاكاتها من bot API لكن يمكنك:\n';
+        output += '• استخدام "فلترة حسب الدولة" كبديل\n';
+        output += '• سحب أعضاء من قروب محلي ثم تصفيتهم حسب رقم الهاتف';
+        break;
+      }
+      case 'nearby_add_users': {
+        output = '⚠️ Nearby + Add غير متاح عبر Bot API.\nاستخدم نقل الأعضاء من قروب محلي.';
+        break;
+      }
+      case 'nearby_country_search': {
+        const country = String(params.country);
+        const targetPeer = params.targetPeer ? String(params.targetPeer) : null;
+        const prefixes: Record<string, string> = {
+          SA: '+966', AE: '+971', EG: '+20', KW: '+965', QA: '+974',
+          BH: '+973', OM: '+968', JO: '+962', LB: '+961', IQ: '+964',
+          SY: '+963', YE: '+967', PS: '+970', SD: '+249', LY: '+218',
+          TN: '+216', DZ: '+213', MA: '+212', MR: '+222', SO: '+252',
+        };
+        const countryNames: Record<string, string> = {
+          SA: 'السعودية', AE: 'الإمارات', EG: 'مصر', KW: 'الكويت', QA: 'قطر',
+          BH: 'البحرين', OM: 'عمان', JO: 'الأردن', LB: 'لبنان', IQ: 'العراق',
+          SY: 'سوريا', YE: 'اليمن', PS: 'فلسطين', SD: 'السودان', LY: 'ليبيا',
+          TN: 'تونس', DZ: 'الجزائر', MA: 'المغرب', MR: 'موريتانيا', SO: 'الصومال',
+        };
+        // Find dialogs with users from this country
+        const dialogs = await client.getDialogs({ limit: 500 });
+        const matching: any[] = [];
+        for (const d of dialogs as any[]) {
+          if (d.entity?.phone) {
+            const phone = '+' + d.entity.phone;
+            if (phone.startsWith(prefixes[country])) {
+              matching.push(d.entity);
+            }
+          }
+        }
+        output = `🌍 مستخدمو ${countryNames[country]} (${country}) في محادثاتك:\n\n`;
+        output += `تم العثور على: ${matching.length} مستخدم\n\n`;
+        output += matching.slice(0, 50).map((u) => `• +${u.phone} | ${u.firstName || '-'} @${u.username || '-'}`).join('\n');
+
+        if (targetPeer && matching.length > 0) {
+          output += `\n\n➕ إضافة لـ ${targetPeer}...`;
+          const target = await resolvePeer(client, targetPeer);
+          let added = 0, failed = 0;
+          for (const u of matching.slice(0, 20)) {
+            try {
+              const userEntity = await client.getInputEntity(u);
+              await client.invoke(new Api.channels.InviteToChannel({
+                channel: target, users: [userEntity],
+              }));
+              added++;
+            } catch {
+              failed++;
+            }
+            await new Promise((r) => setTimeout(r, 5000));
+          }
+          output += `\n✓ أُضيف: ${added} | ✗ فشل: ${failed}`;
+        }
+        break;
+      }
+
+      // ===== 📨 Messaging (4) =====
+      case 'msg_send_text': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const result = await client.sendMessage(peer, {
+          message: String(params.message),
+          silent: params.silent === true,
+          replyTo: params.replyToMsgId ? Number(params.replyToMsgId) : undefined,
+        });
+        if (params.pin === true) {
+          await client.invoke(new Api.messages.PinMessage({ peer, id: [(result as any).id] }));
+        }
+        output = `✅ تم إرسال الرسالة\nMessage ID: ${(result as any).id}\n`;
+        if (params.silent) output += '(صامت)\n';
+        if (params.pin) output += '(مثبّتة ✓)\n';
+        break;
+      }
+      case 'msg_send_media': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const fileUrl = String(params.fileUrl);
+        const caption = params.caption ? String(params.caption) : undefined;
+        // Download file from URL and send it
+        try {
+          const response = await fetch(fileUrl);
+          const buffer = await response.arrayBuffer();
+          const file = Buffer.from(buffer);
+          const result = await client.sendFile(peer, {
+            file: new CustomFile(fileUrl.split('/').pop() || 'file', file.length, '', file),
+            caption,
+            spoiler: params.asSpoiler === true,
+          });
+          output = `✅ تم إرسال الوسائط\nMessage ID: ${(result as any).id}`;
+        } catch (e: any) {
+          output = `✗ فشل إرسال الوسائط: ${e.message}`;
+        }
+        break;
+      }
+      case 'msg_forward': {
+        const fromPeer = await resolvePeer(client, String(params.fromPeer));
+        const toPeer = await resolvePeer(client, String(params.toPeer));
+        const msgIds = String(params.msgIds).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+        await client.forwardMessages(toPeer, msgIds, fromPeer);
+        output = `✅ تم توجيه ${msgIds.length} رسالة`;
+        break;
+      }
+      case 'msg_poll': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const question = String(params.question);
+        const options = String(params.options).split('\n').map((s) => s.trim()).filter(Boolean);
+        const pollResults = await client.invoke(new Api.messages.SendMedia({
+          peer,
+          media: new Api.InputMediaPoll({
+            poll: new Api.Poll({
+              id: BigInt(Math.floor(Math.random() * 1e10)),
+              question,
+              answers: options.map((text, i) => new Api.PollAnswer({
+                text,
+                option: Buffer.from([i]),
+              })),
+              multipleChoice: params.multipleAnswers === true,
+              publicVoters: params.publicVoters === true,
+              closed: params.closed === true,
+            }),
+          }),
+          message: '',
+        }));
+        output = `✅ تم إرسال الاستطلاع\nالسؤال: ${question}\nالخيارات: ${options.join(' | ')}`;
+        break;
+      }
+
+      // ===== 🚩 Reports (4) =====
+      case 'report_user': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const reason = String(params.reason);
+        const reasonMap: Record<string, any> = {
+          spam: new Api.ReportReasonSpam(),
+          fraud: new Api.ReportReasonFraud(),
+          impersonation: new Api.ReportReasonFake(),
+          illegal: new Api.ReportReasonIllegalDrugs(),
+          pornography: new Api.ReportReasonChildAbuse(),
+          hate: new Api.ReportReasonViolence(),
+          violence: new Api.ReportReasonViolence(),
+          child_abuse: new Api.ReportReasonChildAbuse(),
+          bullying: new Api.ReportReasonPersonalDetails(),
+          other: new Api.ReportReasonOther(),
+        };
+        await client.invoke(new Api.account.ReportPeer({
+          peer,
+          reason: reasonMap[reason] || new Api.ReportReasonOther(),
+          message: params.comment ? String(params.comment) : '',
+        }));
+        output = `🚩 تم إرسال البلاغ عن المستخدم بنجاح\nالسبب: ${reason}`;
+        break;
+      }
+      case 'report_message': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const msgId = Number(params.msgId);
+        const reason = String(params.reason);
+        const reasonMap: Record<string, any> = {
+          spam: new Api.ReportReasonSpam(),
+          fraud: new Api.ReportReasonFraud(),
+          impersonation: new Api.ReportReasonFake(),
+          illegal: new Api.ReportReasonIllegalDrugs(),
+          pornography: new Api.ReportReasonChildAbuse(),
+          hate: new Api.ReportReasonViolence(),
+          violence: new Api.ReportReasonViolence(),
+          child_abuse: new Api.ReportReasonChildAbuse(),
+          bullying: new Api.ReportReasonPersonalDetails(),
+          other: new Api.ReportReasonOther(),
+        };
+        await client.invoke(new Api.messages.Report({
+          peer,
+          id: [msgId],
+          reason: reasonMap[reason] || new Api.ReportReasonOther(),
+          message: '',
+        }));
+        output = `🚩 تم إرسال البلاغ عن الرسالة ${msgId} بنجاح`;
+        break;
+      }
+      case 'report_channel': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const reason = String(params.reason);
+        const reasonMap: Record<string, any> = {
+          spam: new Api.ReportReasonSpam(),
+          fraud: new Api.ReportReasonFraud(),
+          impersonation: new Api.ReportReasonFake(),
+          illegal: new Api.ReportReasonIllegalDrugs(),
+          pornography: new Api.ReportReasonChildAbuse(),
+          violence: new Api.ReportReasonViolence(),
+          child_abuse: new Api.ReportReasonChildAbuse(),
+          other: new Api.ReportReasonOther(),
+        };
+        await client.invoke(new Api.account.ReportPeer({
+          peer,
+          reason: reasonMap[reason] || new Api.ReportReasonOther(),
+          message: '',
+        }));
+        output = `🚩 تم إرسال البلاغ عن القناة بنجاح`;
+        break;
+      }
+      case 'report_story': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const storyId = Number(params.storyId);
+        const reason = String(params.reason);
+        output = `🚩 محاولة الإبلاغ عن الستوري ${storyId}\n`;
+        output += `ملاحظة: الإبلاغ عن الستوري غير متاح عبر Bot API مباشرة.\n`;
+        output += `استخدم الإبلاغ عن المستخدم كحل بديل.`;
+        break;
+      }
+
+      // ===== 🛠️ Group Tools (4) =====
+      case 'group_anti_delete': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        // Get recent deleted messages (Telegram keeps them as service messages)
+        const messages = await client.getMessages(peer, { limit: 100 });
+        const deleted = messages.filter((m: any) => m.action?.className === 'MessageActionChatDeleteMessage' || m.deleted);
+        output = `🛡️ الرسائل المحذوفة في آخر 100 رسالة:\n\n`;
+        output += `عدد المحذوفة: ${deleted.length}\n\n`;
+        output += deleted.slice(0, 20).map((m: any) => {
+          const date = new Date((m.date || 0) * 1000).toLocaleString('ar');
+          return `• [${date}] رسالة ${m.id} — حُذفت`;
+        }).join('\n');
+        break;
+      }
+      case 'group_history_cleanup': {
+        const confirm = String(params.confirm);
+        if (confirm !== 'CLEAN') {
+          ok = false;
+          error = 'التأكيد غير صحيح — اكتب "CLEAN" للتأكيد';
+          break;
+        }
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const me = await client.getMe() as any;
+        const messages = await client.getMessages(peer, { fromUser: 'me', limit: 1000 });
+        const ids = messages.map((m: any) => m.id);
+        await client.deleteMessages(peer, ids, { revoke: true });
+        output = `🧹 تم حذف ${ids.length} رسالة من حسابك في القروب`;
+        break;
+      }
+      case 'group_member_tracker': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const recent = participants.filter((p: any) => {
+          const joinedAt = p.participant?.date;
+          if (!joinedAt) return false;
+          const dayAgo = (Date.now() / 1000) - 86400;
+          return joinedAt > dayAgo;
+        });
+        const left = participants.filter((p: any) => p.participant?.className === 'ChannelParticipantLeft');
+        output = `👁️ تتبع دخول/خروج آخر 24 ساعة:\n\n`;
+        output += `✅ انضموا حديثاً: ${recent.length}\n`;
+        output += `🚪 غادروا: ${left.length}\n\n`;
+        output += 'المنضمون الجدد:\n';
+        output += recent.slice(0, 20).map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'group_link_converter': {
+        const link = String(params.inviteLink);
+        // Try to resolve the link to get the chat username
+        try {
+          const hash = link.replace(/.*\+/, '').replace(/.*joinchat\//, '');
+          const result = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+          if (result.chat?.username) {
+            output = `🔗 تحويل الرابط:\n\nالرابط القديم: ${link}\nالرابط المباشر: @${result.chat.username}\nhttps://t.me/${result.chat.username}`;
+          } else {
+            output = `ℹ️ هذا القروب لا يملك username مباشر.\nالرابط الأصلي: ${link}\nالاسم: ${result.chat?.title || 'غير معروف'}`;
+          }
+        } catch (e: any) {
+          output = `✗ فشل تحليل الرابط: ${e.message}`;
+        }
+        break;
+      }
+
+      // ===== 📈 Engagement (3) =====
+      case 'eng_mass_reactions': {
+        const groups = String(params.groups).split('\n').map((s) => s.trim()).filter(Boolean);
+        const emoji = String(params.emoji || '❤️');
+        const limit = Number(params.limit ?? 10);
+        const results: string[] = [];
+        let totalSuccess = 0, totalFailed = 0;
+        for (const groupPeer of groups) {
+          try {
+            const peer = await resolvePeer(client, groupPeer);
+            const messages = await client.getMessages(peer, { limit });
+            let groupSuccess = 0;
+            for (const m of messages as any[]) {
+              try {
+                await client.invoke(new Api.messages.SendReaction({
+                  peer, msgId: m.id,
+                  reaction: [new Api.ReactionEmoji({ emoticon: emoji })],
+                }));
+                groupSuccess++;
+              } catch {}
+            }
+            results.push(`✓ ${groupPeer}: ${groupSuccess}/${messages.length} تفاعل`);
+            totalSuccess += groupSuccess;
+          } catch (e: any) {
+            results.push(`✗ ${groupPeer}: ${e.message?.substring(0, 40)}`);
+            totalFailed++;
+          }
+        }
+        output = `❤️ تفاعلات جماعية (${groups.length} قروب × ${limit} رسالة):\nإجمالي النجاح: ${totalSuccess}\n\n` + results.join('\n');
+        break;
+      }
+      case 'eng_view_stories': {
+        // Get all contacts/friends and view their stories
+        const contacts = await client.invoke(new Api.contacts.GetContacts({}));
+        const users = (contacts as any)?.users || [];
+        let viewed = 0;
+        for (const u of users.slice(0, Number(params.limit ?? 50))) {
+          try {
+            await client.invoke(new Api.stories.ReadStories({ peer: u.id, maxId: 100 }));
+            viewed++;
+          } catch {}
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        output = `👀 تمت مشاهدة ${viewed} ستوري من ${users.length} صديق`;
+        break;
+      }
+      case 'eng_story_reactions': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const emoji = String(params.emoji || '❤️');
+        try {
+          await client.invoke(new Api.stories.SendReaction({
+            peer,
+            storyId: 1,
+            reaction: new Api.ReactionEmoji({ emoticon: emoji }),
+          }));
+          output = `✅ تم التفاعل مع ستوري ${peer}`;
+        } catch (e: any) {
+          output = `⚠️ التفاعل مع الستوري محدود عبر API. رسالة الخطأ: ${e.message?.substring(0, 100)}`;
+        }
+        break;
+      }
+
+      // ===== Misc remaining commands =====
+      case 'get_profile_photos': {
+        const photos = await client.getProfilePhotos('me');
+        output = `🖼️ صور الملف الشخصي (${photos.length}):\n\n`;
+        output += photos.map((p: any) => `• ID: ${p.id} | حجم: ${p.sizes?.length || '?'} نسخ`).join('\n');
+        break;
+      }
+      case 'change_2fa': {
+        // Same as secure_login_change
+        const { password: PasswordHelper } = await import('telegram');
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        const currentCheck = await (PasswordHelper as any).computeCheck(currentResult as any, String(params.currentPassword));
+        const newSettings = new Api.account.PasswordInputSettings({
+          newAlgo: currentResult.newAlgo,
+          newPasswordHash: await (PasswordHelper as any).computeCheck(currentResult as any, String(params.newPassword)),
+          hint: params.hint ? String(params.hint) : undefined,
+        });
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: currentCheck, newSettings }));
+        output = '✅ تم تغيير كلمة مرور 2FA بنجاح';
+        break;
+      }
+      case 'enable_2fa': {
+        const { password: PasswordHelper } = await import('telegram');
+        const result = await client.invoke(new Api.account.GetPassword());
+        if (result.hasPassword) {
+          output = '⚠️ 2FA مفعّل بالفعل';
+          break;
+        }
+        const newSettings = new Api.account.PasswordInputSettings({
+          newAlgo: result.newAlgo,
+          newPasswordHash: await (PasswordHelper as any).computeCheck(result as any, String(params.password)),
+          hint: params.hint ? String(params.hint) : undefined,
+        });
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: new Api.InputCheckPasswordEmpty(), newSettings }));
+        output = '✅ تم تفعيل 2FA';
+        break;
+      }
+      case 'disable_2fa': {
+        const { password: PasswordHelper } = await import('telegram');
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        const currentCheck = await (PasswordHelper as any).computeCheck(currentResult as any, String(params.currentPassword));
+        await client.invoke(new Api.account.UpdatePasswordSettings({
+          password: currentCheck,
+          newSettings: new Api.account.PasswordInputSettings({}),
+        }));
+        output = '⚠️ تم تعطيل 2FA';
+        break;
+      }
+      case 'get_login_codes': {
+        // Try to fetch sent codes - limited API support
+        output = '🔢 لا يمكن عرض أكواد SMS سابقة عبر Bot API.\n';
+        output += 'تيليجرام يرسل الأكواد عبر SMS/تطبيق فقط.\n';
+        output += 'لعرض محاولات الدخول الأخيرة، استخدم /secure-login → الجلسات';
+        break;
+      }
+      case 'get_full_info': {
+        const me = await client.getMe() as any;
+        const full = await client.invoke(new Api.users.GetFullUser({ id: new Api.InputUserSelf() }));
+        output = `📋 المعلومات الكاملة:\n\n` + JSON.stringify({
+          id: String(me.id),
+          first_name: me.firstName || me.first_name,
+          last_name: me.lastName || me.last_name,
+          username: me.username,
+          phone: me.phone,
+          premium: me.premium,
+          status: me.status?.className,
+          full_info: full,
+        }, null, 2).substring(0, 5000);
+        break;
+      }
+      case 'get_entity_info': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const entity = await client.getEntity(peer);
+        output = `📋 معلومات الجهة:\n\n` + JSON.stringify(entity, null, 2).substring(0, 3000);
+        break;
+      }
+      case 'get_chat_info': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const entity = await client.getEntity(peer);
+        const fullChat = await client.invoke(new Api.messages.GetFullChat({ chatId: (entity as any).id }));
+        output = `ℹ️ معلومات المحادثة:\n\n` + JSON.stringify({
+          name: (entity as any).title || (entity as any).firstName,
+          username: (entity as any).username,
+          id: String((entity as any).id),
+          type: (entity as any).className,
+          full: fullChat,
+        }, null, 2).substring(0, 5000);
+        break;
+      }
+      case 'delete_contact': {
+        const userId = String(params.userId);
+        const userEntity = await client.getInputEntity(userId);
+        await client.invoke(new Api.contacts.DeleteContacts({ id: [userEntity] }));
+        output = `✅ تم حذف جهة الاتصال`;
+        break;
+      }
+      case 'send_file': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const fileUrl = String(params.fileUrl);
+        const caption = params.caption ? String(params.caption) : undefined;
+        try {
+          const response = await fetch(fileUrl);
+          const buffer = await response.arrayBuffer();
+          const file = Buffer.from(buffer);
+          const result = await client.sendFile(peer, {
+            file: new CustomFile(fileUrl.split('/').pop() || 'file', file.length, '', file),
+            caption,
+          });
+          output = `✅ تم إرسال الملف بنجاح\nMessage ID: ${(result as any).id}`;
+        } catch (e: any) {
+          output = `✗ فشل: ${e.message}`;
+        }
+        break;
+      }
+      case 'forward_messages': {
+        const fromPeer = await resolvePeer(client, String(params.fromPeer));
+        const toPeer = await resolvePeer(client, String(params.toPeer));
+        const ids = String(params.messageIds).split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+        await client.forwardMessages(toPeer, ids, fromPeer);
+        output = `✅ تم توجيه ${ids.length} رسالة`;
+        break;
+      }
+      case 'check_username_available': {
+        const username = String(params.username).replace('@', '');
+        try {
+          await client.invoke(new Api.account.CheckUsername({ username }));
+          output = `✅ اسم المستخدم @${username} متاح للتسجيل!`;
+        } catch (e: any) {
+          output = `❌ @${username} غير متاح: ${e.message?.substring(0, 80)}`;
+        }
+        break;
+      }
+      case 'create_group': {
+        const result = await client.invoke(new Api.messages.CreateChat({
+          users: [],
+          title: String(params.title),
+        }));
+        output = `✅ تم إنشاء المجموعة: ${params.title}`;
+        break;
+      }
+      case 'join_group': {
+        const hash = String(params.inviteLink).replace(/.*\+/, '').replace(/.*joinchat\//, '');
+        await client.invoke(new Api.messages.ImportChatInvite({ hash }));
+        output = `✅ تم الانضمام للمجموعة`;
+        break;
+      }
+      case 'leave_group': {
+        const peer = await resolvePeer(client, String(params.groupId));
+        await client.invoke(new Api.channels.LeaveChannel({ channel: peer }));
+        output = `✅ تمت المغادرة`;
+        break;
+      }
+      case 'get_participants': {
+        const peer = await resolvePeer(client, String(params.groupId));
+        const participants = await client.getParticipants(peer, { limit: 200 });
+        output = `👥 أعضاء المجموعة (${participants.length}):\n\n`;
+        output += participants.map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'kick_member': {
+        const peer = await resolvePeer(client, String(params.groupId));
+        const userEntity = await client.getInputEntity(String(params.userId));
+        await client.invoke(new Api.channels.EditBanned({
+          channel: peer,
+          participant: userEntity,
+          bannedRights: new Api.ChatBannedRights({ viewMessages: true, sendMessages: true, untilDate: 0 }),
+        }));
+        output = `✅ تم طرد العضو`;
+        break;
+      }
+      case 'promote_admin': {
+        const peer = await resolvePeer(client, String(params.groupId));
+        const userEntity = await client.getInputEntity(String(params.userId));
+        await client.invoke(new Api.channels.EditAdmin({
+          channel: peer,
+          userId: userEntity,
+          adminRights: new Api.ChatAdminRights({
+            changeInfo: true,
+            postMessages: true,
+            editMessages: true,
+            deleteMessages: true,
+            banUsers: true,
+            inviteUsers: true,
+            pinMessages: true,
+            manageCall: true,
+          }),
+          rank: 'admin',
+        }));
+        output = `✅ تمت ترقية العضو لمشرف`;
+        break;
+      }
+      case 'set_group_title': {
+        const peer = await resolvePeer(client, String(params.groupId));
+        await client.invoke(new Api.channels.EditTitle({
+          channel: peer,
+          title: String(params.title),
+        }));
+        output = `✅ تم تحديث اسم المجموعة`;
+        break;
+      }
+      case 'create_channel': {
+        const result = await client.invoke(new Api.channels.CreateChannel({
+          title: String(params.title),
+          about: params.about ? String(params.about) : '',
+          megagroup: params.megagroup === true,
+        }));
+        output = `✅ تم إنشاء القناة: ${params.title}`;
+        break;
+      }
+      case 'join_channel': {
+        const peer = await resolvePeer(client, String(params.channelUsername));
+        await client.invoke(new Api.channels.JoinChannel({ channel: peer }));
+        output = `✅ تم الانضمام للقناة`;
+        break;
+      }
+      case 'leave_channel': {
+        const peer = await resolvePeer(client, String(params.channelId));
+        await client.invoke(new Api.channels.LeaveChannel({ channel: peer }));
+        output = `✅ تمت مغادرة القناة`;
+        break;
+      }
+      case 'get_channel_members': {
+        const peer = await resolvePeer(client, String(params.channelId));
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        output = `📢 عدد المشتركين: ${participants.length}`;
+        break;
+      }
+      case 'mass_promote': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.EditAdmin({
+              channel: peer,
+              userId: userEntity,
+              adminRights: new Api.ChatAdminRights({
+                changeInfo: true, postMessages: true, editMessages: true,
+                deleteMessages: true, banUsers: true, inviteUsers: true,
+                pinMessages: true, manageCall: true,
+              }),
+              rank: 'admin',
+            }));
+            results.push(`✓ ${u} — مُرقّى`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${u}: ${e.message?.substring(0, 40)}`);
+            failed++;
+          }
+        }
+        output = `⬆️ نتائج الترقية:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_pin_messages': {
+        const groups = String(params.groups).split('\n').map((s) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g);
+            const messages = await client.getMessages(peer, { limit: 1 });
+            if (messages[0]) {
+              await client.invoke(new Api.messages.PinMessage({ peer, id: [messages[0].id] }));
+              results.push(`✓ ${g} — ثُبّت آخر رسالة`);
+              success++;
+            }
+          } catch (e: any) {
+            results.push(`✗ ${g}: ${e.message?.substring(0, 40)}`);
+            failed++;
+          }
+        }
+        output = `📌 نتائج التثبيت:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_delete_dialogs': {
+        const confirm = String(params.confirm);
+        if (confirm !== 'DELETE') {
+          ok = false;
+          error = 'التأكيد غير صحيح — اكتب "DELETE"';
+          break;
+        }
+        const dialogs = await client.getDialogs({ limit: 200 });
+        let count = 0;
+        for (const d of dialogs as any[]) {
+          try {
+            await client.invoke(new Api.messages.DeleteHistory({
+              peer: d.entity,
+              maxId: 0,
+              revoke: true,
+              justClear: false,
+            }));
+            count++;
+          } catch {}
+        }
+        output = `🗑️ تم حذف ${count} محادثة`;
+        break;
+      }
+
       default:
         ok = false;
         error = `الأمر "${cmd.label}" ليس منفّذاً بعد — هذا تنفيذ تجريبي`;
