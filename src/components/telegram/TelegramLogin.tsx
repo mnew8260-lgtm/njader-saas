@@ -505,7 +505,7 @@ export function ApiPoolManager() {
                   <Label className="text-xs">label (اختياري)</Label>
                   <Input
                     type="text"
-                    placeholder="NJADDER-Personal"
+                    placeholder="njadder-Personal"
                     value={form.label}
                     onChange={(e) => setForm({ ...form, label: e.target.value })}
                   />

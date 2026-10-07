@@ -58,8 +58,8 @@ export function DashboardNav({ user }: { user: AuthUser }) {
               {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
             </button>
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="size-8 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold grid place-items-center">N</div>
-              <span className="font-bold text-lg hidden sm:inline">NJADDER</span>
+              <div className="size-8 rounded-lg bg-gradient-to-br from-zinc-900 to-zinc-700 dark:from-white dark:to-zinc-300 text-white dark:text-zinc-900 font-bold grid place-items-center text-lg lowercase">n</div>
+              <span className="font-bold text-lg hidden sm:inline lowercase">njadder</span>
             </Link>
           </div>
 

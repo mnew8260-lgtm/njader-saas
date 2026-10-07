@@ -125,7 +125,7 @@ export default async function DashboardPage() {
             مرحباً، {user.displayName || user.username || user.email} 👋
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            لوحة تحكم NJADDER SaaS — أضف حسابات تيليجرام وأدرها بسهولة
+            لوحة تحكم njadder — أضف حسابات تيليجرام وأدرها بسهولة
           </p>
         </div>
         <div className="flex items-center gap-2">

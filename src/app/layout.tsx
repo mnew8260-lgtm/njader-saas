@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NJADDER SaaS — تسجيل دخول تيليجرام",
-  description: "منصة SaaS لإدارة حسابات تيليجرام. تسجيل دخول آمن بخطوات بسيطة مع API pool تلقائي.",
-  keywords: ["NJADDER", "Telegram", "GramJS", "SaaS", "Next.js"],
+  title: "njadder — منصة تيليجرام الاحترافية",
+  description: "njadder — أداة تيليجرام الموحدة. تسجيل دخول آمن، إدارة حسابات، سحب وإضافة أعضاء، 143+ أمر.",
+  keywords: ["njadder", "Telegram", "GramJS", "SaaS", "Next.js", "NMDDER"],
   authors: [{ name: "NMDDER" }],
 };
 

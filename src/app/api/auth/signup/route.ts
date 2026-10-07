@@ -1,37 +1,55 @@
 /**
  * /api/auth/signup — creates a new "user" role account (pending approval)
+ * Now with: rate limiting + strong password validation + input sanitization
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword, createSession } from '@/lib/auth';
 import { sendSubscriptionRequest } from '@/lib/subscription';
+import {
+  checkRateLimit, getClientIp, sanitizeInput, isValidEmail, isValidUsername, isStrongPassword,
+} from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const USERNAME_RE = /^[A-Za-z0-9_]{3,30}$/;
-
 export async function POST(req: NextRequest) {
+  // Rate limit: 5 signups per minute per IP
+  const ip = getClientIp(req);
+  const rate = checkRateLimit(`signup:${ip}`, 5);
+  if (!rate.ok) {
+    return NextResponse.json(
+      { ok: false, error: 'RATE_LIMITED', message: 'محاولات كثيرة. انتظر دقيقة.' },
+      { status: 429 }
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
-  const username = String(body.username || '').trim();
-  const email = String(body.email || '').trim().toLowerCase();
+  const username = sanitizeInput(String(body.username || ''), 30);
+  const email = sanitizeInput(String(body.email || '').toLowerCase(), 254);
   const password = String(body.password || '');
 
-  if (!USERNAME_RE.test(username)) {
+  // Validate username
+  if (!isValidUsername(username)) {
     return NextResponse.json(
       { ok: false, error: 'INVALID_USERNAME', message: 'اسم المستخدم: 3-30 حرف لاتينية/أرقام/شرطة سفلية' },
       { status: 400 }
     );
   }
-  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+
+  // Validate email
+  if (!isValidEmail(email)) {
     return NextResponse.json(
-      { ok: false, error: 'INVALID_EMAIL', message: 'بريد غير صالح' },
+      { ok: false, error: 'INVALID_EMAIL', message: 'بريد إلكتروني غير صالح' },
       { status: 400 }
     );
   }
-  if (password.length < 6) {
+
+  // Validate password strength
+  const pwdCheck = isStrongPassword(password);
+  if (!pwdCheck.ok) {
     return NextResponse.json(
-      { ok: false, error: 'PASSWORD_TOO_SHORT', message: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' },
+      { ok: false, error: 'WEAK_PASSWORD', message: pwdCheck.reason || 'كلمة المرور ضعيفة' },
       { status: 400 }
     );
   }
@@ -52,7 +70,7 @@ export async function POST(req: NextRequest) {
     data: {
       username,
       email,
-      passwordHash: hashPassword(password),
+      passwordHash: hashPassword(password),  // bcrypt with 10 rounds
       displayName: username,
       role: 'user',
       accountStatus: 'pending',

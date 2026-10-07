@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         status: 'idle',
         fullName: result.user.first_name || null,
         username: result.user.username || null,
-        deviceModel: 'NJADDER SaaS',
+        deviceModel: 'njadder',
         ownerId: user.id,
       },
       update: {

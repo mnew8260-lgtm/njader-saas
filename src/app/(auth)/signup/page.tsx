@@ -50,7 +50,7 @@ export default function SignupPage() {
     <Card>
       <CardHeader>
         <CardTitle className="text-2xl">إنشاء حساب جديد</CardTitle>
-        <CardDescription>سجل في NJADDER SaaS — تجربة مجانية فورية</CardDescription>
+        <CardDescription>سجل في njadder — تجربة مجانية فورية</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="space-y-4">

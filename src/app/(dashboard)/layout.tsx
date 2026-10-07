@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { DashboardNav } from '@/components/dashboard/nav';
 
 export const metadata: Metadata = {
-  title: 'لوحة التحكم · NJADDER',
+  title: 'لوحة التحكم · njadder',
 };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <DashboardNav user={user} />
       <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">{children}</main>
       <footer className="mt-auto py-4 text-center text-xs text-muted-foreground border-t">
-        © 2026 NJADDER SaaS · <a href="https://t.me/NMDDER_DEV" className="text-primary underline" target="_blank" rel="noreferrer">@NMDDER_DEV</a>
+        © 2026 njadder · <a href="https://t.me/NMDDER_DEV" className="text-primary underline" target="_blank" rel="noreferrer">@NMDDER_DEV</a>
       </footer>
     </div>
   );

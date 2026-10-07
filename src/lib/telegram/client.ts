@@ -92,7 +92,7 @@ export async function makeClient(
   const client = new TelegramClient(stringSession, apiId, apiHash, {
     connectionRetries: 5,
     useWSS: true,
-    deviceModel: 'NJADDER SaaS',
+    deviceModel: 'njadder',
     systemVersion: '6.3',
     appVersion: 'njadder-saas/6.3',
     langCode: 'en',
