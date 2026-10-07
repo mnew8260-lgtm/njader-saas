@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Clock, XCircle, AlertTriangle, RotateCw, LogOut } from 'lucide-react';
+import { Clock, XCircle, AlertTriangle, RotateCw, LogOut, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -32,56 +32,122 @@ const REASONS: Record<string, { icon: JSX.Element; title: string; message: strin
 function PendingContent() {
   const search = useSearchParams();
   const router = useRouter();
-  const reason = search.get('reason') || 'pending';
+  const initialReason = search.get('reason') || 'pending';
+  const [reason, setReason] = useState(initialReason);
+  const [countdown, setCountdown] = useState(15);
+  const [checking, setChecking] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [approved, setApproved] = useState(false);
+
   const info = REASONS[reason] || REASONS.pending;
 
-  const [countdown, setCountdown] = useState(30);
+  // Check if user was approved in DB (refresh JWT)
+  const checkStatus = useCallback(async () => {
+    setChecking(true);
+    setFeedback(null);
+    try {
+      const res = await fetch('/api/auth/refresh', { method: 'POST' });
+      const data = await res.json();
 
-  useEffect(() => {
-    const id = setInterval(() => setCountdown((c) => Math.max(0, c - 1)), 1000);
-    return () => clearInterval(id);
-  }, []);
+      if (!data.ok) {
+        setFeedback(data.message || data.error || 'فشل التحديث');
+        return;
+      }
 
-  const reload = () => {
-    if (countdown === 0) {
-      router.push('/dashboard');
-    } else {
-      window.location.reload();
+      const status = data.user?.accountStatus;
+
+      if (status === 'approved') {
+        setApproved(true);
+        setFeedback('✅ تم تفعيل حسابك! جارٍ تحويلك للوحة التحكم…');
+        // Redirect to dashboard after short delay
+        setTimeout(() => {
+          router.push('/dashboard');
+          router.refresh();
+        }, 1500);
+      } else {
+        setReason(status || 'pending');
+        setFeedback(`⏳ حالة الحساب الحالية: ${status || 'pending'}`);
+      }
+    } catch (e: any) {
+      setFeedback(e.message);
+    } finally {
+      setChecking(false);
     }
-  };
+  }, [router]);
+
+  // Auto-check every 15 seconds while pending
+  useEffect(() => {
+    if (approved) return;
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          checkStatus();
+          return 15;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [approved, checkStatus]);
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
+    router.refresh();
   };
 
   return (
     <Card className="border-0 shadow-2xl">
       <CardHeader className="text-center pb-2">
-        <div className="mx-auto mb-3">{info.icon}</div>
-        <CardTitle className="text-2xl">{info.title}</CardTitle>
+        <div className="mx-auto mb-3">
+          {approved ? <CheckCircle2 className="size-12 text-emerald-500" /> : info.icon}
+        </div>
+        <CardTitle className="text-2xl">
+          {approved ? 'تم تفعيل حسابك!' : info.title}
+        </CardTitle>
         <CardDescription className="text-base mt-2 leading-relaxed">
-          {info.message}
+          {approved ? 'يمكنك الآن الوصول إلى لوحة التحكم واستخدام كل الميزات.' : info.message}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Alert className={
+          approved ? 'bg-emerald-500/10 border-emerald-500/30' :
           info.variant === 'pending' ? 'bg-blue-500/10 border-blue-500/30' :
           info.variant === 'rejected' ? 'bg-red-500/10 border-red-500/30' :
           'bg-amber-500/10 border-amber-500/30'
         }>
           <AlertDescription className="text-sm">
-            {info.variant === 'pending' && '📧 تم إرسال إشعار إلى المالك بطلبك.'}
+            {approved ? '✅ تم تحديث صلاحياتك بنجاح' :
+              info.variant === 'pending' && '📧 تم إرسال إشعار إلى المالك بطلبك. سيتم فحص الحالة تلقائياً.'}
             {info.variant === 'rejected' && '🔒 للاستفسار عن سبب الرفض، تواصل مع الدعم.'}
             {info.variant === 'expired' && '⏰ لتجديد اشتراكك، تواصل مع المالك عبر @NMDDER_DEV'}
           </AlertDescription>
         </Alert>
 
+        {feedback && (
+          <Alert>
+            <AlertDescription className="text-sm">{feedback}</AlertDescription>
+          </Alert>
+        )}
+
+        {!approved && info.variant === 'pending' && (
+          <p className="text-xs text-center text-muted-foreground">
+            سيتم فحص الحالة تلقائياً كل 15 ثانية. التالي خلال {countdown}s
+          </p>
+        )}
+
         <div className="flex flex-col gap-2">
-          <Button onClick={reload} className="w-full gap-2" variant="default">
-            <RotateCw className="size-4" />
-            {countdown > 0 ? `إعادة التحقق (${countdown}s)` : 'الذهاب للوحة التحكم'}
-          </Button>
+          {!approved && (
+            <Button onClick={checkStatus} disabled={checking} className="w-full gap-2">
+              {checking ? <RotateCw className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
+              {checking ? 'جارٍ الفحص…' : 'فحص الحالة الآن'}
+            </Button>
+          )}
+          {approved && (
+            <Button onClick={() => router.push('/dashboard')} className="w-full gap-2">
+              الذهاب للوحة التحكم
+            </Button>
+          )}
           <Button onClick={logout} variant="outline" className="w-full gap-2">
             <LogOut className="size-4" /> تسجيل الخروج
           </Button>

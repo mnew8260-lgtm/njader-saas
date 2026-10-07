@@ -13,6 +13,8 @@ const PUBLIC_API_PATHS = [
   '/api/auth/login',
   '/api/auth/signup',
   '/api/auth/logout',
+  '/api/auth/refresh',  // needed by /pending page to detect approval
+  '/api/auth/me',
 ];
 
 function getSecretKey(): Uint8Array {
