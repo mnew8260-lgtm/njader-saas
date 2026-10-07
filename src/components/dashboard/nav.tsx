@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Phone, Users, KeyRound, LogOut, Shield,
+  Terminal, ShieldCheck, Globe,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AuthUser } from '@/lib/auth';
@@ -16,10 +17,14 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'الرئيسية', icon: <LayoutDashboard className="size-4" /> },
-  { href: '/telegram-login', label: 'إضافة حساب', icon: <Phone className="size-4" /> },
-  { href: '/accounts', label: 'حساباتي', icon: <Users className="size-4" /> },
-  { href: '/admin/api-pool', label: 'إدارة API', icon: <KeyRound className="size-4" />, adminOnly: true },
+  { href: '/dashboard',        label: 'الرئيسية',    icon: <LayoutDashboard className="size-4" /> },
+  { href: '/telegram-login',   label: 'إضافة حساب',   icon: <Phone className="size-4" /> },
+  { href: '/accounts',         label: 'حساباتي',     icon: <Users className="size-4" /> },
+  { href: '/commands',         label: 'مدير الأوامر', icon: <Terminal className="size-4" /> },
+  { href: '/ban-checker',     label: 'فاحص الحظر',  icon: <ShieldCheck className="size-4" /> },
+  { href: '/admin/users',     label: 'الاشتراكات',   icon: <Shield className="size-4" />, adminOnly: true },
+  { href: '/admin/api-pool',  label: 'API Pool',    icon: <KeyRound className="size-4" />, adminOnly: true },
+  { href: '/proxy-manager',   label: 'البروكسي',     icon: <Globe className="size-4" />, adminOnly: true },
 ];
 
 export function DashboardNav({ user }: { user: AuthUser }) {
@@ -42,7 +47,7 @@ export function DashboardNav({ user }: { user: AuthUser }) {
             <div className="size-8 rounded-lg bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 font-bold grid place-items-center">N</div>
             <span className="font-bold text-lg hidden sm:inline">NJADDER</span>
           </Link>
-          <nav className="flex items-center gap-1 overflow-x-auto">
+          <nav className="flex items-center gap-1 overflow-x-auto max-w-full">
             {NAV.filter((n) => !n.adminOnly || isAdmin).map((item) => {
               const active = pathname === item.href || pathname.startsWith(item.href + '/');
               return (
@@ -54,7 +59,7 @@ export function DashboardNav({ user }: { user: AuthUser }) {
                   }`}
                 >
                   {item.icon}
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="hidden md:inline">{item.label}</span>
                 </Link>
               );
             })}

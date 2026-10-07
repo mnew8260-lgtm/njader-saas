@@ -45,12 +45,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Create session — include subscription fields so we can enforce in middleware
   await createSession({
     id: user.id,
     username: user.username,
     email: user.email,
     role: user.role,
     displayName: user.displayName,
+    accountStatus: user.accountStatus,
+    subscriptionEndsAt: user.subscriptionEndsAt,
+    subscriptionPlan: user.subscriptionPlan,
   });
 
   return NextResponse.json({
@@ -61,6 +65,9 @@ export async function POST(req: NextRequest) {
       email: user.email,
       role: user.role,
       displayName: user.displayName,
+      accountStatus: user.accountStatus,
+      subscriptionEndsAt: user.subscriptionEndsAt,
+      subscriptionPlan: user.subscriptionPlan,
     },
   });
 }

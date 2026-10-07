@@ -36,6 +36,9 @@ model TelegramAccount {
   ownerId       String?
   owner         User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
   activities    ActivityLog[]
+  proxyAssignments ProxyAssignment[]
+  banChecks     BanCheck[]
+  commandExecutions CommandExecution[]
 }
 
 /// An API credential pair (api_id, api_hash) for rotation
@@ -94,9 +97,31 @@ model User {
   isBanned          Boolean  @default(false)
   bannedReason      String?
   bannedAt          DateTime?
+
+  // Subscription approval workflow fields
+  accountStatus     String   @default("pending") // pending | approved | rejected | expired
+  subscriptionEndsAt DateTime?  // when subscription ends
+  subscriptionPlan   String?    // month | quarter | year | lifetime
+  approvedAt        DateTime?
+  approvedBy        String?     // owner user id
+  rejectionReason   String?
+  requestedAt       DateTime? @default(now())
+
+  // Profile
+  avatar            String?
+  bio               String?
+  country           String?
+  lastActiveAt      DateTime?
+
+  // Relations for new features
+  commandExecutions CommandExecution[]
+
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   lastLoginAt       DateTime?
+
+  @@index([accountStatus])
+  @@index([subscriptionEndsAt])
 }
 
 model UserSession {
@@ -244,4 +269,84 @@ model NotificationQueue {
   sentAt        DateTime?
   status        String   @default("queued")
   createdAt     DateTime @default(now())
+}
+
+// ============================================================================
+// Proxy Manager
+// ============================================================================
+
+model Proxy {
+  id         String   @id @default(cuid())
+  type       String   @default("socks5")  // socks5 | http | https
+  host       String
+  port       Int
+  username   String?
+  password   String?
+  country    String?
+  enabled    Boolean  @default(true)
+  isWorking  Boolean  @default(true)
+  lastChecked DateTime?
+  latency    Int?
+  usedCount  Int      @default(0)
+  failCount  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  assignments ProxyAssignment[]
+
+  @@index([enabled, isWorking])
+  @@index([host, port])
+}
+
+model ProxyAssignment {
+  id         String   @id @default(cuid())
+  proxyId    String
+  accountId  String
+  assignedAt DateTime @default(now())
+
+  proxy      Proxy           @relation(fields: [proxyId], references: [id], onDelete: Cascade)
+  account    TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId])  // each account has at most one proxy
+}
+
+// ============================================================================
+// Command Definitions & Execution History
+// ============================================================================
+
+model CommandExecution {
+  id         String   @id @default(cuid())
+  userId     String
+  accountId  String?
+  commandId  String
+  commandName String
+  input      String?
+  output     String?
+  status     String   @default("pending")  // pending | success | error | timeout
+  duration   Int?     // ms
+  executedAt DateTime @default(now())
+
+  user       User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  account    TelegramAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([accountId])
+  @@index([executedAt])
+}
+
+// ============================================================================
+// Ban Check History
+// ============================================================================
+
+model BanCheck {
+  id         String   @id @default(cuid())
+  accountId  String
+  isBanned   Boolean
+  reason     String?
+  checkedAt  DateTime @default(now())
+
+  account    TelegramAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([checkedAt])
 }

@@ -37,13 +37,25 @@ export interface AuthUser {
   email: string | null;
   role: string;
   displayName: string | null;
+  accountStatus: string;
+  subscriptionEndsAt: Date | null;
+  subscriptionPlan: string | null;
 }
 
 /**
  * Create a new session for a user, store it in DB and set a signed JWT cookie.
  * Call this from a Server Action or Route Handler (next/headers cookies() is async).
  */
-export async function createSession(user: { id: string; username: string | null; email: string | null; role: string; displayName: string | null }) {
+export async function createSession(user: {
+  id: string;
+  username: string | null;
+  email: string | null;
+  role: string;
+  displayName: string | null;
+  accountStatus?: string;
+  subscriptionEndsAt?: Date | null;
+  subscriptionPlan?: string | null;
+}) {
   const token = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
 
@@ -65,6 +77,9 @@ export async function createSession(user: { id: string; username: string | null;
     email: user.email,
     role: user.role,
     displayName: user.displayName,
+    accountStatus: user.accountStatus || 'pending',
+    subscriptionEndsAt: user.subscriptionEndsAt ? user.subscriptionEndsAt.toISOString() : null,
+    subscriptionPlan: user.subscriptionPlan || null,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -114,6 +129,9 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       email: (payload.email as string) || null,
       role: (payload.role as string) || 'user',
       displayName: (payload.displayName as string) || null,
+      accountStatus: (payload.accountStatus as string) || 'pending',
+      subscriptionEndsAt: payload.subscriptionEndsAt ? new Date(payload.subscriptionEndsAt as string) : null,
+      subscriptionPlan: (payload.subscriptionPlan as string) || null,
     };
   } catch {
     return null;
