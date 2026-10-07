@@ -345,9 +345,13 @@ export async function verifyPassword(phone: string, password: string): Promise<V
     // Get password salt + invoke
     const passwordSrpResult = await client.invoke(new Api.account.GetPassword());
 
-    // GramJS Password helpers
-    const { Password } = await import('telegram/Password');
-    const passwordRes = await Password.computeCheck(passwordSrpResult as any, password);
+    // GramJS 2.x: the password helper is `password.computeCheck` (lowercase),
+    // not `Password.computeCheck` as in older versions.
+    const { password: PasswordHelper } = await import('telegram');
+    if (!PasswordHelper || typeof (PasswordHelper as any).computeCheck !== 'function') {
+      throw new Error('PASSWORD_HELPER_UNAVAILABLE: GramJS password helper not found');
+    }
+    const passwordRes = await (PasswordHelper as any).computeCheck(passwordSrpResult as any, password);
     await client.invoke(new Api.auth.CheckPassword({ password: passwordRes as any }));
 
     const newSession = (client.session as unknown as { save?: () => string }).save?.();
