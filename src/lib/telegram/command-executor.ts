@@ -298,6 +298,401 @@ export async function executeCommand(opts: {
         break;
       }
 
+      // ===== Scraping =====
+      case 'scrape_group_members': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const limit = Number(params.limit ?? 1000);
+        const filterBots = params.filterBots !== false;
+        const filterDeleted = params.filterDeleted !== false;
+        const filterPremium = params.filterPremium === true;
+
+        const participants = await client.getParticipants(peer, { limit });
+        let filtered = participants.filter((p: any) => {
+          if (filterBots && p.bot) return false;
+          if (filterDeleted && p.deleted) return false;
+          if (filterPremium && !p.premium) return false;
+          return true;
+        });
+
+        output = `📊 إجمالي الأعضاء المستخرجين: ${participants.length}\nبعد التصفية: ${filtered.length}\n\n`;
+        output += 'ID                | Username           | Name\n';
+        output += '─────────────────────────────────────────────\n';
+        output += filtered.slice(0, 200).map((p: any) => {
+          const id = String(p.id).padEnd(17);
+          const uname = (p.username ? '@' + p.username : '-').padEnd(18);
+          const name = [p.firstName, p.lastName].filter(Boolean).join(' ');
+          return `${id} | ${uname} | ${name || '-'}`;
+        }).join('\n');
+
+        if (filtered.length > 200) {
+          output += `\n\n(عرض أول 200 فقط — إجمالي ${filtered.length})`;
+        }
+        break;
+      }
+      case 'scrape_online_members': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const limit = Number(params.limit ?? 200);
+        const participants = await client.getParticipants(peer, { limit });
+        const online = participants.filter((p: any) => p.status === 'online' || p.status?.className === 'UserStatusOnline');
+        output = `عدد المستخدمين النشطين حالياً: ${online.length}\n\n`;
+        output += online.map((p: any) => `• ${p.firstName || ''} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'scrape_admins': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const result = await client.invoke(new Api.channels.GetParticipant({ channel: peer, participant: new Api.InputPeerSelf() }));
+        output = JSON.stringify(result, null, 2);
+        break;
+      }
+      case 'scrape_bots': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const bots = participants.filter((p: any) => p.bot);
+        output = `عدد البوتات: ${bots.length}\n\n`;
+        output += bots.map((b: any) => `• @${b.username || '-'} | ${b.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'scrape_recent_users': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const participants = await client.getParticipants(peer, { limit: 100 });
+        output = `آخر 100 مستخدم نشط:\n\n`;
+        output += participants.map((p: any) => `• ${p.firstName || ''} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'scrape_group_info': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const fullInfo = await client.invoke(new Api.messages.GetFullChat({ chatId: (peer as any).chatId }));
+        output = JSON.stringify(fullInfo, null, 2).substring(0, 5000);
+        break;
+      }
+      case 'check_phone_in_group': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const phone = String(params.phone);
+        const participants = await client.getParticipants(peer, { limit: 5000 });
+        const found = participants.find((p: any) => p.phone === phone.replace('+', ''));
+        output = found
+          ? `✅ الرقم ${phone} موجود في المجموعة\nالاسم: ${found.firstName}\nالمعرّف: @${found.username || '-'}`
+          : `❌ الرقم ${phone} غير موجود في المجموعة (تم فحص ${participants.length} عضو)`;
+        break;
+      }
+      case 'export_members_csv': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const limit = Number(params.limit ?? 1000);
+        const participants = await client.getParticipants(peer, { limit });
+        output = 'ID,Username,FirstName,LastName,Phone,IsBot,IsPremium\n';
+        output += participants.map((p: any) => {
+          return [
+            p.id,
+            p.username || '',
+            `"${p.firstName || ''}"`,
+            `"${p.lastName || ''}"`,
+            p.phone || '',
+            p.bot ? 'yes' : 'no',
+            p.premium ? 'yes' : 'no',
+          ].join(',');
+        }).join('\n');
+        output = `تم تصدير ${participants.length} عضو بصيغة CSV:\n\n` + output;
+        break;
+      }
+
+      // ===== Mass Operations =====
+      case 'mass_add_members': {
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const delay = Number(params.delay ?? 5) * 1000;
+        const stopOnFlood = params.stopOnFlood !== false;
+
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const user of users) {
+          try {
+            const userEntity = await client.getInputEntity(user);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target,
+              users: [userEntity],
+            }));
+            results.push(`✓ ${user} — أُضيف`);
+            success++;
+          } catch (e: any) {
+            const msg = e.message || String(e);
+            if (msg.includes('FLOOD_WAIT') && stopOnFlood) {
+              const m = msg.match(/(\d+)/);
+              const wait = m ? parseInt(m[1]) : 60;
+              results.push(`⛔ ${user} — FloodWait ${wait}s — تم الإيقاف`);
+              failed++;
+              break;
+            }
+            results.push(`✗ ${user} — فشل: ${msg.substring(0, 60)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `📊 نتائج الإضافة (${users.length} مستخدم):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'transfer_members': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 50);
+        const delay = Number(params.delay ?? 10) * 1000;
+        const filterBots = params.filterBots !== false;
+        const filterDeleted = params.filterDeleted !== false;
+        const stopOnFlood = params.stopOnFlood !== false;
+
+        // 1) Scrape
+        const participants = await client.getParticipants(source, { limit: limit * 2 });
+        const filtered = participants.filter((p: any) => {
+          if (filterBots && p.bot) return false;
+          if (filterDeleted && p.deleted) return false;
+          return true;
+        }).slice(0, limit);
+
+        output = `📥 سحب ${filtered.length} عضو من المصدر...\n\n`;
+
+        // 2) Add
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({
+              channel: target,
+              users: [userEntity],
+            }));
+            results.push(`✓ ${p.firstName || p.id} — أُضيف`);
+            success++;
+          } catch (e: any) {
+            const msg = e.message || String(e);
+            if (msg.includes('FLOOD_WAIT') && stopOnFlood) {
+              const m = msg.match(/(\d+)/);
+              const wait = m ? parseInt(m[1]) : 60;
+              results.push(`⛔ ${p.firstName || p.id} — FloodWait ${wait}s — تم الإيقاف`);
+              failed++;
+              break;
+            }
+            results.push(`✗ ${p.firstName || p.id} — ${msg.substring(0, 60)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output += `📤 نتائج الإضافة (${filtered.length} محاولة):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_dm_group_members': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const message = String(params.message);
+        const limit = Number(params.limit ?? 30);
+        const delay = Number(params.delay ?? 15) * 1000;
+
+        const participants = await client.getParticipants(peer, { limit });
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const p of participants as any[]) {
+          if (p.bot || p.deleted) continue;
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.sendMessage(userEntity, { message });
+            results.push(`✓ @${p.username || p.id} — تم الإرسال`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ @${p.username || p.id} — فشل: ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `📧 نتائج الإرسال (${success + failed} محاولة):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_kick': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const delay = Number(params.delay ?? 2) * 1000;
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.EditBanned({
+              channel: peer,
+              participant: userEntity,
+              bannedRights: new Api.ChatBannedRights({
+                viewMessages: true,
+                sendMessages: true,
+                untilDate: 0,
+              }),
+            }));
+            results.push(`👢 ${u} — طُرد`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${u} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `👢 نتائج الطرد:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_ban': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.EditBanned({
+              channel: peer,
+              participant: userEntity,
+              bannedRights: new Api.ChatBannedRights({
+                viewMessages: true,
+                sendMessages: true,
+                sendMedia: true,
+                sendStickers: true,
+                sendGifs: true,
+                sendGames: true,
+                sendInline: true,
+                embedLinks: true,
+                untilDate: 0,
+              }),
+            }));
+            results.push(`⛔ ${u} — حُظر`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${u} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+        }
+        output = `⛔ نتائج الحظر:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_mute': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const duration = Number(params.duration ?? 60);
+        const untilDate = Math.floor(Date.now() / 1000) + duration * 60;
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.EditBanned({
+              channel: peer,
+              participant: userEntity,
+              bannedRights: new Api.ChatBannedRights({
+                sendMessages: true,
+                untilDate,
+              }),
+            }));
+            results.push(`🔇 ${u} — كُتم لـ ${duration} دقيقة`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${u} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+        }
+        output = `🔇 نتائج الكتم:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_unmute': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const users = String(params.userList).split('\n').map((s) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.EditBanned({
+              channel: peer,
+              participant: userEntity,
+              bannedRights: new Api.ChatBannedRights({ untilDate: 0 }),
+            }));
+            results.push(`🔊 ${u} — رُفع الكتم`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${u} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+        }
+        output = `🔊 نتائج إلغاء الكتم:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_join_groups': {
+        const links = String(params.inviteLinks).split('\n').map((s) => s.trim()).filter(Boolean);
+        const delay = Number(params.delay ?? 10) * 1000;
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const link of links) {
+          try {
+            await client.invoke(new Api.messages.ImportChatInvite({ hash: link.replace(/.*\+/, '') }));
+            results.push(`➡️ ${link} — انضممت`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${link} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `➡️ نتائج الانضمام:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_leave_groups': {
+        const confirm = String(params.confirm);
+        if (confirm !== 'LEAVE') {
+          ok = false;
+          error = 'التأكيد غير صحيح — اكتب "LEAVE" للتأكيد';
+          break;
+        }
+        const delay = Number(params.delay ?? 3) * 1000;
+        const dialogs = await client.getDialogs({});
+        const groups = dialogs.filter((d: any) => d.isGroup || d.isChannel);
+        const results: string[] = [];
+        let success = 0;
+        for (const d of groups as any[]) {
+          try {
+            await client.invoke(new Api.channels.LeaveChannel({ channel: d.entity }));
+            results.push(`🚪 غادرت ${d.name || d.title}`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ ${d.name} — ${e.message?.substring(0, 50)}`);
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+        output = `🚪 غادرت ${success} مجموعة من أصل ${groups.length}:\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_react_messages': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const emoji = String(params.emoji || '👍');
+        const limit = Number(params.limit ?? 20);
+        const messages = await client.getMessages(peer, { limit });
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const m of messages as any[]) {
+          try {
+            await client.invoke(new Api.messages.SendReaction({ peer, msgId: m.id, reaction: [new Api.ReactionEmoji({ emoticon: emoji })] }));
+            results.push(`❤️ رسالة ${m.id} — تم التفاعل`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ رسالة ${m.id} — ${e.message?.substring(0, 50)}`);
+            failed++;
+          }
+        }
+        output = `❤️ نتائج التفاعل:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'mass_read_messages': {
+        const dialogs = await client.getDialogs({ limit: 100 });
+        let count = 0;
+        for (const d of dialogs as any[]) {
+          try {
+            await client.invoke(new Api.messages.ReadHistory({ peer: d.entity, maxId: 0 }));
+            count++;
+          } catch {}
+        }
+        output = `✓ تم تعليم ${count} محادثة كمقروءة`;
+        break;
+      }
+
       default:
         ok = false;
         error = `الأمر "${cmd.label}" ليس منفّذاً بعد — هذا تنفيذ تجريبي`;

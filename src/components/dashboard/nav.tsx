@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Phone, Users, KeyRound, LogOut, Shield,
-  Terminal, ShieldCheck, Globe,
+  Terminal, ShieldCheck, Globe, Users2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AuthUser } from '@/lib/auth';
@@ -20,6 +20,7 @@ const NAV: NavItem[] = [
   { href: '/dashboard',        label: 'الرئيسية',    icon: <LayoutDashboard className="size-4" /> },
   { href: '/telegram-login',   label: 'إضافة حساب',   icon: <Phone className="size-4" /> },
   { href: '/accounts',         label: 'حساباتي',     icon: <Users className="size-4" /> },
+  { href: '/mass-tools',       label: 'السحب والإضافة', icon: <Users2 className="size-4" /> },
   { href: '/commands',         label: 'مدير الأوامر', icon: <Terminal className="size-4" /> },
   { href: '/ban-checker',     label: 'فاحص الحظر',  icon: <ShieldCheck className="size-4" /> },
   { href: '/admin/users',     label: 'الاشتراكات',   icon: <Shield className="size-4" />, adminOnly: true },

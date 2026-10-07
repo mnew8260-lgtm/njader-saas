@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import {
   Phone, Users, KeyRound, Plus, ArrowLeft,
   Terminal, ShieldCheck, Globe, Activity,
-  CheckCircle2, Calendar, Sparkles,
+  CheckCircle2, Calendar, Sparkles, Users2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -60,8 +60,16 @@ export default async function DashboardPage() {
       stat: `${accountsCount} حساب`,
     },
     {
+      title: 'السحب والإضافة الجماعية',
+      desc: 'سحب أعضاء من قروب مصدر، نقلهم لقروب هدف، DM جماعي، طرد/حظر/كتم',
+      icon: <Users2 className="size-5" />,
+      href: '/mass-tools',
+      color: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+      stat: 'الأداة الأقوى',
+    },
+    {
       title: 'مدير الأوامر',
-      desc: 'نفّذ 57 أمر تيليجرام (إرسال، حظر، خصوصية، أمان…)',
+      desc: 'نفّذ 80+ أمر تيليجرام (إرسال، حظر، خصوصية، أمان…)',
       icon: <Terminal className="size-5" />,
       href: '/commands',
       color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
