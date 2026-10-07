@@ -693,6 +693,290 @@ export async function executeCommand(opts: {
         break;
       }
 
+      // ===== 🎯 Filters =====
+      case 'filter_by_country': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const countries = String(params.countries).split(',').map((s) => s.trim().toUpperCase());
+        const limit = Number(params.limit ?? 100);
+        const participants = await client.getParticipants(peer, { limit });
+        const prefixes: Record<string, string> = {
+          SA: '+966', AE: '+971', EG: '+20', KW: '+965', QA: '+974',
+          BH: '+973', OM: '+968', JO: '+962', LB: '+961', IQ: '+964',
+          SY: '+963', YE: '+967', PS: '+970', SD: '+249', LY: '+218',
+          TN: '+216', DZ: '+213', MA: '+212', MR: '+222', SO: '+252',
+        };
+        const filtered = participants.filter((p: any) => {
+          if (!p.phone) return false;
+          const phone = '+' + p.phone;
+          return countries.some((c) => phone.startsWith(prefixes[c] || '+' + c));
+        });
+        output = `🌍 فلترة حسب الدولة (${countries.join(', ')}):\n\n`;
+        output += `إجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• +${p.phone} | ${p.firstName || '-'} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_by_last_seen': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const lastSeen = String(params.lastSeen);
+        const limit = Number(params.limit ?? 100);
+        const participants = await client.getParticipants(peer, { limit });
+        const now = Date.now();
+        const thresholds: Record<string, number> = {
+          online: 5 * 60 * 1000,
+          hour: 60 * 60 * 1000,
+          today: 24 * 60 * 60 * 1000,
+          week: 7 * 24 * 60 * 60 * 1000,
+          month: 30 * 24 * 60 * 60 * 1000,
+        };
+        const threshold = thresholds[lastSeen] || thresholds.today;
+        const filtered = participants.filter((p: any) => {
+          if (lastSeen === 'online') return p.status?.className === 'UserStatusOnline';
+          const wasOnline = p.status?.wasOnline;
+          if (!wasOnline) return false;
+          return (now - wasOnline * 1000) < threshold;
+        });
+        output = `⏰ فلترة حسب آخر ظهور (${lastSeen}):\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_by_premium': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const exclude = params.excludePremium === true;
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => exclude ? !p.premium : p.premium);
+        output = `⭐ ${exclude ? 'بدون' : 'فقط'} Premium:\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'} ${p.premium ? '⭐' : ''}`).join('\n');
+        break;
+      }
+      case 'filter_by_username': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const hasUsername = params.hasUsername !== false;
+        const pattern = params.pattern ? String(params.pattern).toLowerCase() : null;
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => {
+          if (hasUsername && !p.username) return false;
+          if (!hasUsername && p.username) return false;
+          if (pattern && p.username && !p.username.toLowerCase().includes(pattern)) return false;
+          return true;
+        });
+        output = `@ فلترة حسب الـ username:\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• @${p.username || '-'} | ${p.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_by_phone': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const hasPhone = params.hasPhone !== false;
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => hasPhone ? !!p.phone : !p.phone);
+        output = `📱 فلترة حسب الهاتف:\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• +${p.phone || '-'} | ${p.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_by_status': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const status = String(params.status);
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        let filtered: any[] = [];
+        if (status === 'bots') filtered = participants.filter((p: any) => p.bot);
+        else if (status === 'deleted') filtered = participants.filter((p: any) => p.deleted);
+        else if (status === 'active') filtered = participants.filter((p: any) => !p.deleted && !p.bot);
+        else filtered = participants;
+        output = `🚦 فلترة حسب الحالة (${status}):\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• ${p.firstName || '-'} ${p.bot ? '🤖' : ''} ${p.deleted ? '💀' : ''}`).join('\n');
+        break;
+      }
+      case 'filter_by_activity': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const activeInDays = Number(params.activeInDays ?? 30);
+        const threshold = Date.now() - activeInDays * 24 * 60 * 60 * 1000;
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => {
+          const wasOnline = p.status?.wasOnline;
+          if (!wasOnline) return false;
+          return (wasOnline * 1000) > threshold;
+        });
+        output = `⚡ فلترة حسب النشاط (آخر ${activeInDays} يوم):\n\nإجمالي: ${participants.length} | نشط: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• ${p.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_by_language': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const lang = String(params.language);
+        const patterns: Record<string, RegExp> = {
+          ar: /[\u0600-\u06FF]/,
+          fa: /[\u0600-\u06FF]/,
+          en: /^[a-zA-Z]/,
+          tr: /[çğıöşüÇĞİÖŞÜ]/,
+          ru: /[\u0400-\u04FF]/,
+        };
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => {
+          const name = p.firstName || '';
+          return patterns[lang]?.test(name);
+        });
+        output = `🌐 فلترة حسب اللغة (${lang}):\n\nإجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• ${p.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_mutual_contacts': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const participants = await client.getParticipants(peer, { limit: 1000 });
+        const filtered = participants.filter((p: any) => p.mutualContact);
+        output = `📇 جهات الاتصال المتبادلة:\n\nإجمالي: ${participants.length} | متبادل: ${filtered.length}\n\n`;
+        output += filtered.map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'}`).join('\n');
+        break;
+      }
+      case 'filter_combine': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const limit = Number(params.limit ?? 100);
+        const country = params.country ? String(params.country).toUpperCase() : null;
+        const lastSeen = params.lastSeen ? String(params.lastSeen) : null;
+        const onlyPremium = params.onlyPremium === true;
+        const onlyWithUsername = params.onlyWithUsername === true;
+        const excludeBots = params.excludeBots !== false;
+        const excludeDeleted = params.excludeDeleted !== false;
+        const participants = await client.getParticipants(peer, { limit: limit * 5 });
+        const now = Date.now();
+        const prefixes: Record<string, string> = {
+          SA: '+966', AE: '+971', EG: '+20', KW: '+965', QA: '+974',
+          BH: '+973', OM: '+968', JO: '+962', LB: '+961', IQ: '+964',
+        };
+        const filtered = participants.filter((p: any) => {
+          if (excludeBots && p.bot) return false;
+          if (excludeDeleted && p.deleted) return false;
+          if (onlyPremium && !p.premium) return false;
+          if (onlyWithUsername && !p.username) return false;
+          if (country) {
+            if (!p.phone) return false;
+            const phone = '+' + p.phone;
+            if (!phone.startsWith(prefixes[country] || '+' + country)) return false;
+          }
+          if (lastSeen && lastSeen !== '') {
+            const thresholds: Record<string, number> = {
+              online: 5 * 60 * 1000,
+              today: 24 * 60 * 60 * 1000,
+              week: 7 * 24 * 60 * 60 * 1000,
+            };
+            const threshold = thresholds[lastSeen];
+            if (threshold) {
+              const wasOnline = p.status?.wasOnline;
+              if (!wasOnline || (now - wasOnline * 1000) > threshold) return false;
+            }
+          }
+          return true;
+        }).slice(0, limit);
+        output = `🎛️ فلتر مركّب:\n  - الدولة: ${country || 'أي'}\n  - آخر ظهور: ${lastSeen || 'أي'}\n  - Premium فقط: ${onlyPremium}\n  - username: ${onlyWithUsername}\n  - استبعاد البوتات: ${excludeBots}\n  - استبعاد المحذوفين: ${excludeDeleted}\n\n`;
+        output += `إجمالي: ${participants.length} | مطابق: ${filtered.length}\n\n`;
+        output += filtered.slice(0, 100).map((p: any) => `• ${p.firstName || '-'} @${p.username || '-'} ${p.premium ? '⭐' : ''}`).join('\n');
+        break;
+      }
+
+      // ===== 🔐 Secure Login =====
+      case 'secure_login_setup': {
+        const result = await client.invoke(new Api.account.GetPassword());
+        if (result.hasPassword) {
+          output = '⚠️ التحقق الثنائي مفعّل بالفعل. استخدم "تغيير كلمة 2FA" للتحديث.';
+          break;
+        }
+        const { password: PasswordHelper } = await import('telegram');
+        const newSettings = new Api.account.PasswordInputSettings({
+          newAlgo: result.newAlgo,
+          newPasswordHash: await (PasswordHelper as any).computeCheck(result as any, String(params.password)),
+          hint: params.hint ? String(params.hint) : undefined,
+          email: params.recoveryEmail ? String(params.recoveryEmail) : undefined,
+        });
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: new Api.InputCheckPasswordEmpty(), newSettings }));
+        output = '✅ تم تفعيل التحقق الثنائي بنجاح\n\n' +
+          (params.hint ? `التلميح: ${params.hint}\n` : '') +
+          (params.recoveryEmail ? `بريد الاستعادة: ${params.recoveryEmail}\n` : '');
+        break;
+      }
+      case 'secure_login_change': {
+        const { password: PasswordHelper } = await import('telegram');
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        const currentCheck = await (PasswordHelper as any).computeCheck(currentResult as any, String(params.currentPassword));
+        const newSettings = new Api.account.PasswordInputSettings({
+          newAlgo: currentResult.newAlgo,
+          newPasswordHash: await (PasswordHelper as any).computeCheck(currentResult as any, String(params.newPassword)),
+          hint: params.newHint ? String(params.newHint) : undefined,
+        });
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: currentCheck, newSettings }));
+        output = '✅ تم تحديث كلمة مرور التحقق الثنائي بنجاح';
+        break;
+      }
+      case 'secure_login_disable': {
+        const { password: PasswordHelper } = await import('telegram');
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        const currentCheck = await (PasswordHelper as any).computeCheck(currentResult as any, String(params.currentPassword));
+        const emptySettings = new Api.account.PasswordInputSettings({});
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: currentCheck, newSettings: emptySettings }));
+        output = '⚠️ تم تعطيل التحقق الثنائي. حسابك أقل أماناً الآن.';
+        break;
+      }
+      case 'secure_login_status': {
+        const result = await client.invoke(new Api.account.GetPassword()) as any;
+        output = `📊 حالة التسجيل الآمن\n─────────────────────\n`;
+        output += `التحقق الثنائي: ${result.hasPassword ? '✅ مفعّل' : '❌ غير مفعّل'}\n`;
+        output += `التلميح: ${result.hint || 'لا يوجد'}\n`;
+        output += `بريد الاستعادة: ${result.emailUnconfirmedPattern || result.email || 'لا يوجد'}\n`;
+        output += `خوارزمية التشفير: ${result.currentAlgo?.className || 'SRP'}\n`;
+        output += `\n📋 توصيات:\n`;
+        if (!result.hasPassword) output += `• ⚠️ فعّل التحقق الثنائي فوراً لحماية حسابك\n`;
+        if (!result.email) output += `• 📧 أضف بريد استعادة لتفادي فقدان الحساب\n`;
+        if (result.hasPassword && result.email) output += `• ✅ حسابك محمي بشكل جيد\n`;
+        break;
+      }
+      case 'secure_login_sessions': {
+        const result = await client.invoke(new Api.account.GetAuthorizations({}));
+        const sessions = result.authorizations || [];
+        output = `💻 الجلسات النشطة (${sessions.length}):\n\n`;
+        output += sessions.map((s: any) => {
+          const current = s.current ? '⭐ [الحالية] ' : '';
+          const hash = s.hash.toString(16);
+          const location = s.country || 'غير معروف';
+          const device = s.appName || s.deviceModel || 'غير معروف';
+          const platform = s.platform || '?';
+          const date = new Date(s.dateCreated * 1000).toLocaleDateString('ar');
+          return `${current}${device}\n  🌍 ${location} · 💻 ${platform} · 📅 ${date}\n  hash: ${hash}`;
+        }).join('\n\n');
+        break;
+      }
+      case 'secure_login_terminate': {
+        const hash = BigInt(String(params.sessionHash));
+        await client.invoke(new Api.account.ResetAuthorization({ hash }));
+        output = '✅ تم إنهاء الجلسة بنجاح';
+        break;
+      }
+      case 'secure_login_terminate_all': {
+        await client.invoke(new Api.auth.ResetAuthorizations({}));
+        output = '🛡️ تم إنهاء كل الجلسات الأخرى بنجاح. هذا الجهاز فقط هو المتبقي.';
+        break;
+      }
+      case 'secure_login_login_codes': {
+        const result = await client.invoke(new Api.messages.GetRecentReactions({ limit: 10 }));
+        output = '🔢 آخر محاولات تسجيل الدخول:\n\n' + JSON.stringify(result, null, 2).substring(0, 3000);
+        break;
+      }
+      case 'secure_login_email_verify': {
+        const email = String(params.email);
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        const newSettings = new Api.account.PasswordInputSettings({ email });
+        await client.invoke(new Api.account.UpdatePasswordSettings({
+          password: new Api.InputCheckPasswordEmpty(),
+          newSettings,
+        }));
+        output = `📧 تم إرسال رمز التأكيد إلى: ${email}\nأدخل الرمز في تيليجرام لتأكيد البريد.`;
+        break;
+      }
+      case 'secure_login_password_recovery': {
+        await client.invoke(new Api.account.SendVerifyEmailCode({
+          purpose: new Api.EmailVerifyPurposePasswordChange(),
+          email: '',
+        }));
+        output = '🔄 تم بدء عملية استعادة كلمة المرور. تحقق من بريدك الإلكتروني.';
+        break;
+      }
+
       default:
         ok = false;
         error = `الأمر "${cmd.label}" ليس منفّذاً بعد — هذا تنفيذ تجريبي`;

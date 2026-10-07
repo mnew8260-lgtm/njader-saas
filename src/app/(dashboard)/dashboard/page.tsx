@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import {
   Phone, Users, KeyRound, Plus, ArrowLeft,
   Terminal, ShieldCheck, Globe, Activity,
-  CheckCircle2, Calendar, Sparkles, Users2,
+  CheckCircle2, Calendar, Sparkles, Users2, Lock, Filter,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,11 +69,19 @@ export default async function DashboardPage() {
     },
     {
       title: 'مدير الأوامر',
-      desc: 'نفّذ 80+ أمر تيليجرام (إرسال، حظر، خصوصية، أمان…)',
+      desc: 'نفّذ 130+ أمر تيليجرام في 21 تصنيف',
       icon: <Terminal className="size-5" />,
       href: '/commands',
       color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
       stat: `${commandsCount} عملية منفّذة`,
+    },
+    {
+      title: 'التسجيل الآمن (2FA)',
+      desc: 'إدارة التحقق الثنائي، الجلسات النشطة، كلمات المرور، استعادة الحساب',
+      icon: <Lock className="size-5" />,
+      href: '/secure-login',
+      color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
+      stat: 'حماية الحساب',
     },
     {
       title: 'فاحص الحظر',
