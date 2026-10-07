@@ -1,6 +1,6 @@
 /**
- * middleware.ts — Protects dashboard & api routes
- * Allows: / /login /signup /api/auth/* /api/telegram/public/*
+ * proxy.ts — Protects dashboard & api routes (Next.js 16 proxy convention)
+ * Allows: / /login /signup /api/auth/*
  */
 import { NextRequest, NextResponse } from 'next/server';
 
