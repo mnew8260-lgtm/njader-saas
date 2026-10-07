@@ -18,7 +18,7 @@ const PUBLIC_API_PREFIXES = [
   '/api/auth/logout',
 ];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Public pages
