@@ -1,15 +1,15 @@
 import type { Metadata, Viewport } from 'next';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
-import { MobileAppNav } from '@/components/mobile/BottomNav';
+import { AppSidebar } from '@/components/mobile/BottomNav';
 
 export const metadata: Metadata = {
   title: 'njadder · لوحة التحكم',
-  description: 'إدارة حسابات تيليجرام، سحب وإضافة أعضاء، 158+ أمر',
+  description: 'إدارة حسابات تيليجرام، سحب وإضافة أعضاء، 172+ أمر',
 };
 
 export const viewport: Viewport = {
-  themeColor: '#0a0a0a',
+  themeColor: '#1e3a8a',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -24,10 +24,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <MobileAppNav user={user} />
-      <main className="flex-1 container mx-auto max-w-md px-4 py-4 pb-24">
-        {children}
+    <div className="min-h-screen bg-background">
+      <AppSidebar user={user} />
+      <main className="lg:pr-72">
+        <div className="container mx-auto max-w-4xl px-4 py-6 lg:py-8">
+          {children}
+        </div>
       </main>
     </div>
   );
