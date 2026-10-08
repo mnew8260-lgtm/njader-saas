@@ -9,8 +9,12 @@ export default async function BanCheckerPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
+  // Owner/admin can see ALL accounts in the system
+  const isAdmin = user.role === 'owner' || user.role === 'admin';
+  const where = isAdmin ? {} : { ownerId: user.id };
+
   const accounts = await db.telegramAccount.findMany({
-    where: { ownerId: user.id },
+    where,
     select: {
       id: true, phone: true, fullName: true, username: true, status: true,
       banChecks: { orderBy: { checkedAt: 'desc' }, take: 1 },

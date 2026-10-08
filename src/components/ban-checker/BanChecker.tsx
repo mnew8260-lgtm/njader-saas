@@ -32,36 +32,12 @@ interface CheckResult {
 
 export function BanChecker({ accounts }: { accounts: Account[] }) {
   const [busy, setBusy] = useState(false);
+  const [checkingPhone, setCheckingPhone] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, CheckResult>>({});
   const [error, setError] = useState<string | null>(null);
 
-  const checkAll = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/ban-checker', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        // Convert results array to map by phone
-        const map: Record<string, CheckResult> = {};
-        data.results?.forEach((r: CheckResult) => { map[r.phone] = r; });
-        setResults(map);
-      } else {
-        setError(data.error || data.message || 'فشل الفحص');
-      }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const checkOne = async (phone: string) => {
-    setBusy(true);
+    setCheckingPhone(phone);
     setError(null);
     try {
       const res = await fetch('/api/admin/ban-checker', {
@@ -78,8 +54,48 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
     } catch (e: any) {
       setError(e.message);
     } finally {
-      setBusy(false);
+      setCheckingPhone(null);
     }
+  };
+
+  const checkAll = async () => {
+    setBusy(true);
+    setError(null);
+    const newResults: Record<string, CheckResult> = {};
+    
+    // Check each account ONE BY ONE (avoids Vercel 60s timeout)
+    for (const account of accounts) {
+      setCheckingPhone(account.phone);
+      try {
+        const res = await fetch('/api/admin/ban-checker', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone: account.phone }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          newResults[account.phone] = data;
+          setResults({ ...newResults });
+        } else {
+          newResults[account.phone] = {
+            ok: false,
+            phone: account.phone,
+            error: data.error || 'فشل',
+          };
+          setResults({ ...newResults });
+        }
+      } catch (e: any) {
+        setError(e.message);
+        newResults[account.phone] = {
+          ok: false,
+          phone: account.phone,
+          error: e.message,
+        };
+        setResults({ ...newResults });
+      }
+    }
+    setCheckingPhone(null);
+    setBusy(false);
   };
 
   if (accounts.length === 0) {
