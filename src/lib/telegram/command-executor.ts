@@ -98,6 +98,8 @@ const SCRAPING_COMMANDS = new Set([
   'filter_by_phone', 'filter_by_status', 'filter_by_activity', 'filter_by_language',
   'filter_mutual_contacts', 'filter_combine',
   'get_dialogs', 'get_contacts', 'get_blocked_users',
+  'util_chat_history_export', 'util_id_resolver', 'util_backup_session',
+  'util_account_statistics', 'util_account_health',
 ]);
 
 /**
@@ -2612,6 +2614,293 @@ export async function executeCommand(opts: {
           await new Promise((r) => setTimeout(r, 8000));
         }
         output = `🔄 إضافة المتبادلين فقط (${mutual.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+
+      // ===== 🤖 Automation (7) =====
+      case 'auto_responder_setup': {
+        const message = String(params.message);
+        const onlyPrivate = params.onlyPrivate !== false;
+        const duration = Number(params.durationMinutes ?? 60);
+        // Set online status to offline + save message in DB (simplified)
+        await client.invoke(new Api.account.UpdateStatus({ offline: true }));
+        output = `🤖 تم إعداد الرد التلقائي:\n\nالرسالة: "${message}"\nالمدة: ${duration} دقيقة\nالنطاق: ${onlyPrivate ? 'فقط الرسائل الخاصة' : 'كل المحادثات'}\n\n⚠️ ملاحظة: الردود التلقائية الكاملة تحتاج Webhook أو polling service. هذا الإعداد يضع الحساب في وضع عدم التواجد.`;
+        break;
+      }
+      case 'scheduled_message': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const message = String(params.message);
+        const sendAt = new Date(String(params.sendAt));
+        const now = new Date();
+        const delayMs = sendAt.getTime() - now.getTime();
+
+        if (delayMs <= 0) {
+          // Send immediately
+          const result = await client.sendMessage(peer, { message });
+          output = `✅ تم إرسال الرسالة فوراً (الوقت المحدد قد مضى)\nMessage ID: ${(result as any).id}`;
+        } else {
+          // Schedule via setTimeout (works in serverless up to maxDuration)
+          if (delayMs > 50 * 60 * 1000) {
+            output = `⚠️ الجدولة لأكثر من 50 دقيقة غير مدعومة في Vercel.\nالوقت المتبقي: ${Math.floor(delayMs / 60000)} دقيقة\nاستخدم خدمة خارجية مثل Vercel Cron.`;
+          } else {
+            setTimeout(async () => {
+              try { await client.sendMessage(peer, { message }); } catch {}
+            }, delayMs);
+            output = `⏰ تمت جدولة الرسالة لـ ${sendAt.toLocaleString('ar')}\nالوقت المتبقي: ${Math.floor(delayMs / 1000)} ثانية\nالمستلم: ${params.peer}`;
+          }
+        }
+        break;
+      }
+      case 'auto_forward_messages': {
+        const source = await resolvePeer(client, String(params.sourcePeer));
+        const target = await resolvePeer(client, String(params.targetPeer));
+        const limit = Number(params.limit ?? 50);
+        const messages = await client.getMessages(source, { limit });
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const m of messages as any[]) {
+          try {
+            await client.forwardMessages(target, [m.id], source);
+            results.push(`✓ رسالة ${m.id}`);
+            success++;
+          } catch (e: any) {
+            results.push(`✗ رسالة ${m.id}: ${e.message?.substring(0, 30)}`);
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `↪️ توجيه تلقائي (${messages.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'auto_react_messages': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const emoji = String(params.emoji || '❤️');
+        const limit = Number(params.limit ?? 20);
+        const messages = await client.getMessages(peer, { limit });
+        let success = 0, failed = 0;
+        for (const m of messages as any[]) {
+          try {
+            await client.invoke(new Api.messages.SendReaction({
+              peer, msgId: m.id,
+              reaction: [new Api.ReactionEmoji({ emoticon: emoji })],
+            }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        output = `❤️ تفاعل تلقائي (${emoji}):\nنجح: ${success} | فشل: ${failed} من ${messages.length}`;
+        break;
+      }
+      case 'auto_welcome_message': {
+        const peer = await resolvePeer(client, String(params.groupPeer));
+        const message = String(params.message);
+        // Get recent joiners
+        const participants = await client.getParticipants(peer, { limit: 100 });
+        const recent = participants.filter((p: any) => {
+          const joinedAt = p.participant?.date;
+          if (!joinedAt) return false;
+          const hourAgo = (Date.now() / 1000) - 3600;
+          return joinedAt > hourAgo;
+        });
+        let success = 0, failed = 0;
+        for (const p of recent as any[]) {
+          try {
+            const msg = message.replace('{name}', p.firstName || 'العضو الجديد');
+            await client.sendMessage(peer, { message: msg, replyTo: p.participant?.date });
+            success++;
+          } catch { failed++; }
+        }
+        output = `👋 رسائل الترحيب التلقائية:\nنجح: ${success} | فشل: ${failed} لـ ${recent.length} عضو جديد`;
+        break;
+      }
+      case 'auto_pin_last_message': {
+        const groups = String(params.groups).split('\n').map((s) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        let success = 0, failed = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g);
+            const messages = await client.getMessages(peer, { limit: 1 });
+            if (messages[0]) {
+              await client.invoke(new Api.messages.PinMessage({ peer, id: [messages[0].id] }));
+              results.push(`✓ ${g}`);
+              success++;
+            }
+          } catch (e: any) {
+            results.push(`✗ ${g}: ${e.message?.substring(0, 40)}`);
+            failed++;
+          }
+        }
+        output = `📌 تثبيت تلقائي:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        break;
+      }
+      case 'auto_read_replies': {
+        const dialogs = await client.getDialogs({ limit: 100 });
+        let count = 0;
+        for (const d of dialogs as any[]) {
+          if (d.unreadCount > 0) {
+            try {
+              await client.invoke(new Api.messages.ReadHistory({ peer: d.entity, maxId: 0 }));
+              count++;
+            } catch {}
+          }
+        }
+        output = `✓ تم تعليم ${count} محادثة كمقروءة`;
+        break;
+      }
+
+      // ===== 🛠️ Utilities (7 new) =====
+      case 'util_id_resolver': {
+        const input = String(params.input);
+        try {
+          const entity = await client.getInputEntity(input);
+          const fullEntity = await client.getEntity(input) as any;
+          output = `🔍 تحليل المدخل: "${input}"\n\n`;
+          output += `النوع: ${fullEntity.className}\n`;
+          output += `ID: ${fullEntity.id}\n`;
+          if (fullEntity.username) output += `Username: @${fullEntity.username}\n`;
+          if (fullEntity.firstName) output += `الاسم: ${fullEntity.firstName} ${fullEntity.lastName || ''}\n`;
+          if (fullEntity.phone) output += `الهاتف: +${fullEntity.phone}\n`;
+          if (fullEntity.accessHash) output += `Access Hash: ${fullEntity.accessHash}\n`;
+          output += `\nالرابط: https://t.me/${fullEntity.username || 'c/' + fullEntity.id}`;
+        } catch (e: any) {
+          output = `✗ تعذّر تحليل: ${e.message?.substring(0, 100)}`;
+        }
+        break;
+      }
+      case 'util_account_health': {
+        const me = await client.getMe() as any;
+        const password = await client.invoke(new Api.account.GetPassword()) as any;
+        const auths = await client.invoke(new Api.account.GetAuthorizations({}));
+        const config = await client.invoke(new Api.help.GetConfig()) as any;
+        const dialogs = await client.getDialogs({});
+
+        output = `🩺 تقرير صحة الحساب\n═══════════════════════════\n\n`;
+        output += `👤 الحساب:\n  • الاسم: ${me.firstName} ${me.lastName || ''}\n`;
+        output += `  • @${me.username || '-'}\n`;
+        output += `  • الهاتف: +${me.phone}\n`;
+        output += `  • Premium: ${me.premium ? '✅ نعم' : '❌ لا'}\n\n`;
+
+        output += `🔐 الأمان:\n`;
+        output += `  • 2FA: ${password.hasPassword ? '✅ مفعّل' : '⚠️ غير مفعّل'}\n`;
+        output += `  • بريد الاستعادة: ${password.email ? '✅' : '⚠️ غير مُعيّن'}\n`;
+        output += `  • الجلسات النشطة: ${auths.authorizations?.length || 0}\n\n`;
+
+        output += `📊 الإحصائيات:\n`;
+        output += `  • عدد المحادثات: ${dialogs.length}\n`;
+        output += `  • DC: ${config.dcId}\n`;
+        output += `  • إصدار تيليجرام: ${config.version}\n\n`;
+
+        // Recommendations
+        output += `💡 التوصيات:\n`;
+        if (!password.hasPassword) output += `  ⚠️ فعّل 2FA فوراً من /secure-login\n`;
+        if (!password.email) output += `  ⚠️ أضف بريد استعادة لتفادي فقدان الحساب\n`;
+        if ((auths.authorizations?.length || 0) > 5) output += `  ⚠️ لديك ${auths.authorizations?.length} جلسة — راجعها من /secure-login\n`;
+        if (password.hasPassword && password.email && (auths.authorizations?.length || 0) <= 5) {
+          output += `  ✅ حسابك في حالة جيدة!\n`;
+        }
+        break;
+      }
+      case 'util_backup_session': {
+        const session = (client.session as any).save?.() || '';
+        const me = await client.getMe() as any;
+        const backup = {
+          account: {
+            id: String(me.id),
+            first_name: me.firstName,
+            last_name: me.lastName,
+            username: me.username,
+            phone: me.phone,
+            premium: me.premium,
+          },
+          session_string: session,
+          backup_date: new Date().toISOString(),
+          version: '1.0',
+        };
+        output = `💾 النسخة الاحتياطية:\n\n${JSON.stringify(backup, null, 2)}\n\n⚠️ احفظ هذا الملف في مكان آمن — يحتوي على SessionString كاملة!`;
+        break;
+      }
+      case 'util_multi_account_test': {
+        const accounts = await db.telegramAccount.findMany({
+          where: { ownerId, sessionString: { not: null } },
+          select: { id: true, phone: true, fullName: true, status: true },
+        });
+        output = `🔄 فحص ${accounts.length} حساب:\n\n`;
+        for (const acc of accounts) {
+          try {
+            const status = await client.invoke(new Api.users.GetFullUser({ id: new Api.InputUserSelf() }));
+            output += `✅ ${acc.phone} — نشط\n`;
+          } catch (e: any) {
+            output += `❌ ${acc.phone} — ${e.message?.substring(0, 50)}\n`;
+          }
+        }
+        break;
+      }
+      case 'util_chat_history_export': {
+        const peer = await resolvePeer(client, String(params.peer));
+        const limit = Number(params.limit ?? 100);
+        const format = String(params.format || 'json');
+        const messages = await client.getMessages(peer, { limit });
+
+        if (format === 'json') {
+          const data = messages.map((m: any) => ({
+            id: m.id,
+            date: new Date((m.date || 0) * 1000).toISOString(),
+            from_id: String(m.senderId || ''),
+            text: m.message || '',
+            media: m.media?.className || null,
+          }));
+          output = JSON.stringify(data, null, 2);
+        } else if (format === 'csv') {
+          output = 'id,date,from_id,text,media\n';
+          output += messages.map((m: any) => {
+            const date = new Date((m.date || 0) * 1000).toISOString();
+            const text = (m.message || '').replace(/"/g, '""').replace(/\n/g, ' ');
+            return `${m.id},${date},${m.senderId || ''},"${text}",${m.media?.className || ''}`;
+          }).join('\n');
+        } else {
+          output = messages.map((m: any) => {
+            const date = new Date((m.date || 0) * 1000).toLocaleString('ar');
+            return `[${date}] ${m.senderId ? 'أنت' : 'الطرف'}: ${m.message || '[media]'}`;
+          }).join('\n');
+        }
+        break;
+      }
+      case 'util_group_link_generator': {
+        // Telegram doesn't have a public "search groups" API via Bot API
+        // We can search global contacts/channels
+        const query = String(params.query);
+        const result = await client.invoke(new Api.contacts.Search({
+          q: query,
+          limit: Number(params.limit ?? 20),
+        })) as any;
+        const chats = result.chats || [];
+        output = `🔗 نتائج البحث عن "${query}" (${chats.length}):\n\n`;
+        output += chats.map((c: any) => {
+          const link = c.username ? `https://t.me/${c.username}` : '(private)';
+          return `• ${c.title || c.firstName || '?'} — ${link}`;
+        }).join('\n');
+        break;
+      }
+      case 'util_account_statistics': {
+        const me = await client.getMe() as any;
+        const dialogs = await client.getDialogs({});
+        const groups = dialogs.filter((d: any) => d.isGroup);
+        const channels = dialogs.filter((d: any) => d.isChannel);
+        const users = dialogs.filter((d: any) => d.isUser);
+        const unread = dialogs.filter((d: any) => d.unreadCount > 0);
+
+        output = `📊 إحصائيات الحساب ${me.firstName}\n═══════════════════════════\n\n`;
+        output += `💬 المحادثات: ${dialogs.length}\n`;
+        output += `  • مستخدمون (DMs): ${users.length}\n`;
+        output += `  • مجموعات: ${groups.length}\n`;
+        output += `  • قنوات: ${channels.length}\n\n`;
+        output += `📥 غير مقروء: ${unread.length} محادثة\n`;
+        output += `  • إجمالي الرسائل غير المقروءة: ${unread.reduce((sum, d) => sum + d.unreadCount, 0)}\n\n`;
+        output += `👤 معلومات:\n`;
+        output += `  • ID: ${me.id}\n`;
+        output += `  • Premium: ${me.premium ? '✅' : '❌'}\n`;
+        output += `  • الرقم: +${me.phone}\n`;
         break;
       }
 

@@ -1380,6 +1380,192 @@ export const COMMANDS: CommandDef[] = [
   },
 
   // ============================================================================
+  // 🤖 AUTOMATION — ردود تلقائية + جدولة + متابعة
+  // ============================================================================
+  {
+    id: 'auto_responder_setup',
+    name: 'autoResponderSetup',
+    label: '🤖 إعداد رد تلقائي',
+    description: 'إعداد ردود تلقائية على الرسائل الخاصة عند عدم التواجد',
+    category: 'automation',
+    icon: '🤖',
+    params: [
+      { name: 'message', label: 'نص الرد التلقائي', type: 'textarea', required: true, placeholder: 'مرحباً! لست متاحاً الآن، سأرد قريباً.' },
+      { name: 'onlyPrivate', label: 'فقط الرسائل الخاصة (DMs)', type: 'checkbox', required: false, defaultValue: true },
+      { name: 'durationMinutes', label: 'مدة التفعيل (دقيقة)', type: 'number', required: false, defaultValue: 60 },
+    ],
+    requiresAccount: true,
+    danger: 'medium',
+  },
+  {
+    id: 'scheduled_message',
+    name: 'scheduledMessage',
+    label: '⏰ جدولة رسالة',
+    description: 'إرسال رسالة في وقت محدد لاحقاً',
+    category: 'automation',
+    icon: '⏰',
+    params: [
+      { name: 'peer', label: 'المستلم', type: 'text', required: true },
+      { name: 'message', label: 'نص الرسالة', type: 'textarea', required: true },
+      { name: 'sendAt', label: 'وقت الإرسال (ISO)', type: 'text', required: true, placeholder: '2026-10-10T15:30' },
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'auto_forward_messages',
+    name: 'autoForwardMessages',
+    label: '↪️ توجيه تلقائي',
+    description: 'إعادة توجيه كل رسائل قروب/قناة لقناة أخرى تلقائياً',
+    category: 'automation',
+    icon: '↪️',
+    params: [
+      { name: 'sourcePeer', label: 'المصدر', type: 'text', required: true },
+      { name: 'targetPeer', label: 'الهدف', type: 'text', required: true },
+      { name: 'limit', label: 'عدد الرسائل', type: 'number', required: false, defaultValue: 50 },
+    ],
+    requiresAccount: true,
+    danger: 'medium',
+  },
+  {
+    id: 'auto_react_messages',
+    name: 'autoReactMessages',
+    label: '❤️ تفاعل تلقائي',
+    description: 'إضافة react تلقائي لكل رسالة جديدة في قروب',
+    category: 'automation',
+    icon: '❤️',
+    params: [
+      { name: 'groupPeer', label: 'القروب', type: 'text', required: true },
+      { name: 'emoji', label: 'الإيموجي', type: 'text', required: true, defaultValue: '❤️' },
+      { name: 'limit', label: 'عدد الرسائل', type: 'number', required: false, defaultValue: 20 },
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'auto_welcome_message',
+    name: 'autoWelcomeMessage',
+    label: '👋 ترحيب تلقائي',
+    description: 'إرسال رسالة ترحيب لكل عضو جديد ينضم للقروب',
+    category: 'automation',
+    icon: '👋',
+    params: [
+      { name: 'groupPeer', label: 'القروب', type: 'text', required: true },
+      { name: 'message', label: 'رسالة الترحيب', type: 'textarea', required: true, placeholder: 'أهلاً بك {name} في القروب!' },
+    ],
+    requiresAccount: true,
+    danger: 'medium',
+  },
+  {
+    id: 'auto_pin_last_message',
+    name: 'autoPinLastMessage',
+    label: '📌 تثبيت تلقائي',
+    description: 'تثبيت آخر رسالة في عدة قروبات تلقائياً',
+    category: 'automation',
+    icon: '📌',
+    params: [
+      { name: 'groups', label: 'القروبات (واحدة لكل سطر)', type: 'textarea', required: true },
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'auto_read_replies',
+    name: 'autoReadReplies',
+    label: '✓ تعليم الردود كمقروءة',
+    description: 'تعليم كل الردود على رسائلك كمقروءة تلقائياً',
+    category: 'automation',
+    icon: '✓',
+    params: [],
+    requiresAccount: true,
+  },
+
+  // ============================================================================
+  // 🛠️ UTILITIES — أدوات مساعدة إضافية
+  // ============================================================================
+  {
+    id: 'util_id_resolver',
+    name: 'utilIdResolver',
+    label: '🔍 محوّل المعرفات',
+    description: 'تحويل @username ↔ user ID ↔ phone ↔ link',
+    category: 'utilities',
+    icon: '🔍',
+    params: [
+      { name: 'input', label: 'المدخل (username / ID / phone / link)', type: 'text', required: true, placeholder: '@username أو 123456789 أو +9665xx' },
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'util_account_health',
+    name: 'utilAccountHealth',
+    label: '🩺 فحص صحة الحساب',
+    description: 'فحص شامل: FloodWait، حدود الإرسال، الجلسات، 2FA، Premium',
+    category: 'utilities',
+    icon: '🩺',
+    params: [],
+    requiresAccount: true,
+  },
+  {
+    id: 'util_backup_session',
+    name: 'utilBackupSession',
+    label: '💾 نسخة احتياطية للجلسة',
+    description: 'إنشاء ملف JSON يحتوي على كل بيانات الحساب للنسخ الاحتياطي',
+    category: 'utilities',
+    icon: '💾',
+    params: [],
+    requiresAccount: true,
+    danger: 'medium',
+  },
+  {
+    id: 'util_multi_account_test',
+    name: 'utilMultiAccountTest',
+    label: '🔄 فحص كل الحسابات',
+    description: 'فحص حالة كل حساباتك دفعة واحدة (نشط / محظور / منتهي)',
+    category: 'utilities',
+    icon: '🔄',
+    params: [],
+    requiresAccount: true,
+  },
+  {
+    id: 'util_chat_history_export',
+    name: 'utilChatHistoryExport',
+    label: '📤 تصدير سجل المحادثة',
+    description: 'تصدير كل رسائل محادثة بصيغة JSON أو TXT',
+    category: 'utilities',
+    icon: '📤',
+    params: [
+      { name: 'peer', label: 'المحادثة', type: 'text', required: true },
+      { name: 'limit', label: 'عدد الرسائل', type: 'number', required: false, defaultValue: 100 },
+      { name: 'format', label: 'الصيغة', type: 'select', required: false, options: [
+        { label: 'JSON', value: 'json' },
+        { label: 'TXT', value: 'txt' },
+        { label: 'CSV', value: 'csv' },
+      ]},
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'util_group_link_generator',
+    name: 'utilGroupLinkGenerator',
+    label: '🔗 مولّد روابط قروبات',
+    description: 'بحث عن قروبات حسب كلمة مفتاحية + استخراج روابطها',
+    category: 'utilities',
+    icon: '🔗',
+    params: [
+      { name: 'query', label: 'كلمة البحث', type: 'text', required: true, placeholder: 'تسويق، برمجة، تصميم' },
+      { name: 'limit', label: 'العدد', type: 'number', required: false, defaultValue: 20 },
+    ],
+    requiresAccount: true,
+  },
+  {
+    id: 'util_account_statistics',
+    name: 'utilAccountStatistics',
+    label: '📊 إحصائيات الحساب',
+    description: 'عرض إحصائيات: عدد المحادثات، الرسائل المرسلة، المجموعات، إلخ',
+    category: 'utilities',
+    icon: '📊',
+    params: [],
+    requiresAccount: true,
+  },
+
+  // ============================================================================
   // OP3 ADDERS (11) — إضافة أعضاء بطرق متعددة
   // ============================================================================
   {
