@@ -318,16 +318,24 @@ export async function checkBan(phone: string): Promise<BanCheckResult> {
 export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
   let client: TelegramClient;
   try {
-    ({ client } = await makeClient(phone));
+    // Add 15s timeout for connection — if it takes longer, session is likely banned
+    const connectPromise = makeClient(phone);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('CONNECTION_TIMEOUT: قد يكون الحساب محظوراً')), 15000)
+    );
+    ({ client } = await Promise.race([connectPromise, timeoutPromise]));
   } catch (e: any) {
     const msg = e.message || String(e);
     if (msg.includes('AUTH_KEY_UNREGISTERED') || msg.includes('AUTH_KEY_INVALID')) {
-      return { ok: true, isBanned: true, banType: 'auth_failed', reason: '🔑 الجلسة منتهية' };
+      return { ok: true, isBanned: true, banType: 'auth_failed', reason: '🔑 الجلسة منتهية — الحساب محظور أو تم تسجيل خروجه' };
     }
     if (msg.includes('USER_DEACTIVATED')) {
-      return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 الحساب معطّل' };
+      return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 الحساب معطّل نهائياً' };
     }
-    return { ok: false, isBanned: false, reason: 'فشل الاتصال: ' + msg.substring(0, 50) };
+    if (msg.includes('CONNECTION_TIMEOUT')) {
+      return { ok: true, isBanned: true, banType: 'session_invalid', reason: '⏱️ انتهى وقت الاتصال — الجلسة غير صالحة أو محظورة' };
+    }
+    return { ok: false, isBanned: false, reason: 'فشل الاتصال: ' + msg.substring(0, 60) };
   }
 
   try {

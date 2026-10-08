@@ -1,6 +1,6 @@
 {
   "node": {
-    "40e86344ff8bd1e8bda4e44f8911239c0740edcc9e": {
+    "4067d5de3790036be7b3582896e44193d69115d893": {
       "workers": {
         "app/(dashboard)/accounts/page": {
           "moduleId": 59021,
