@@ -103,23 +103,101 @@ const SCRAPING_COMMANDS = new Set([
 ]);
 
 /**
- * Resolve a peer identifier (username, phone, ID) to an Api.InputPeer.
+ * Resolve a peer identifier (username, phone, ID, invite link) to an Api.InputPeer.
+ * Handles private groups (-100xxx), public channels (@username), phone numbers.
  */
 async function resolvePeer(client: TelegramClient, peerInput: string): Promise<any> {
+  const input = peerInput.trim();
+
   // Try as @username
-  if (peerInput.startsWith('@')) {
-    return await client.getInputEntity(peerInput);
+  if (input.startsWith('@')) {
+    try {
+      return await client.getInputEntity(input);
+    } catch {
+      // fall through to other methods
+    }
   }
-  // Try as numeric ID
-  if (/^-?\d+$/.test(peerInput)) {
-    return await client.getInputEntity(peerInput);
+
+  // Try as t.me link (https://t.me/xxx or t.me/xxx)
+  if (input.includes('t.me/') || input.includes('t.me/+')) {
+    const match = input.match(/t\.me\/(?:\+)?([a-zA-Z0-9_-]+)/);
+    if (match) {
+      const hash = match[1];
+      if (input.includes('t.me/+')) {
+        // Private invite link — try to import
+        try {
+          const result = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+          if (result.chat) {
+            return await client.getInputEntity(result.chat);
+          }
+        } catch {}
+      } else {
+        // Public link — treat as username
+        try {
+          return await client.getInputEntity('@' + hash);
+        } catch {}
+      }
+    }
   }
+
+  // Try as numeric ID (including -100xxx for private groups/channels)
+  if (/^-?\d+$/.test(input)) {
+    try {
+      const id = BigInt(input);
+      // For channel/supergroup IDs (-100xxx), convert to proper format
+      if (input.startsWith('-100')) {
+        const channelId = BigInt(input.substring(4));
+        try {
+          return await client.getInputEntity(new Api.PeerChannel({ channelId }));
+        } catch {}
+      }
+      return await client.getInputEntity(input);
+    } catch {}
+  }
+
+  // Try searching in dialogs (for private groups without username)
+  try {
+    const dialogs = await client.getDialogs({ limit: 500 });
+    for (const d of dialogs as any[]) {
+      const entity = d.entity;
+      if (!entity) continue;
+      // Match by ID
+      if (String(entity.id) === input || String(entity.id) === input.replace(/^-100/, '')) {
+        return await client.getInputEntity(entity);
+      }
+      // Match by title/name (for private groups)
+      const title = d.title || d.name || entity.title || '';
+      if (title && title === input) {
+        return await client.getInputEntity(entity);
+      }
+    }
+  } catch {}
+
   // Try as phone number
-  if (peerInput.startsWith('+')) {
-    return await client.getInputEntity(peerInput);
+  if (input.startsWith('+')) {
+    try {
+      return await client.getInputEntity(input);
+    } catch {}
   }
-  // Default: try as username (without @)
-  return await client.getInputEntity(peerInput);
+
+  // Last resort: try as-is
+  return await client.getInputEntity(input);
+}
+
+
+function friendlyError(msg: string): string {
+  if (msg.includes('USER_PRIVACY')) return 'إعدادات الخصوصية تمنع الإضافة';
+  if (msg.includes('USER_NOT_MUTUAL')) return 'غير متبادل — يجب أن يكون لديك DM سابق';
+  if (msg.includes('USER_ALREADY_PARTICIPANT')) return 'موجود في القروب';
+  if (msg.includes('USER_KICKED')) return 'محظور من القروب';
+  if (msg.includes('CHANNELS_TOO_MUCH')) return 'الحساب في قروبات كثيرة';
+  if (msg.includes('CHAT_ADMIN_REQUIRED')) return 'تحتاج صلاحية مشرف';
+  if (msg.includes('PEER_ID_INVALID')) return 'معرّف القروب غير صحيح';
+  if (msg.includes('USER_ID_INVALID')) return 'معرّف المستخدم غير صحيح';
+  if (msg.includes('CHAT_WRITE_FORBIDDEN')) return 'ممنوع الكتابة في القروب';
+  if (msg.includes('USER_BOT_REQUIRED')) return 'البوت غير مسموح';
+  if (msg.includes('INPUT_CONSTRUCTOR_INVALID')) return 'معرّف غير صحيح';
+  return msg.substring(0, 60);
 }
 
 export async function executeCommand(opts: {
@@ -508,7 +586,17 @@ export async function executeCommand(opts: {
               failed++;
               break;
             }
-            results.push(`✗ ${user} — فشل: ${msg.substring(0, 60)}`);
+            // User-friendly error messages
+            let friendly = msg.substring(0, 60);
+            if (msg.includes('USER_PRIVACY')) friendly = 'إعدادات الخصوصية تمنع الإضافة';
+            else if (msg.includes('USER_NOT_MUTUAL')) friendly = 'غير متبادل — يجب أن يكون لديك DM سابق';
+            else if (msg.includes('USER_ALREADY_PARTICIPANT')) friendly = 'موجود في القروب';
+            else if (msg.includes('USER_KICKED')) friendly = 'محظور من القروب';
+            else if (msg.includes('CHANNELS_TOO_MUCH')) friendly = 'الحساب في قروبات كثيرة';
+            else if (msg.includes('CHAT_ADMIN_REQUIRED')) friendly = 'تحتاج صلاحية مشرف';
+            else if (msg.includes('PEER_ID_INVALID')) friendly = 'معرّف القروب غير صحيح';
+            else if (msg.includes('USER_ID_INVALID')) friendly = 'معرّف المستخدم غير صحيح';
+            results.push(`✗ ${user} — ${friendly}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, delay));
@@ -556,7 +644,7 @@ export async function executeCommand(opts: {
               failed++;
               break;
             }
-            results.push(`✗ ${p.firstName || p.id} — ${msg.substring(0, 60)}`);
+            results.push(`✗ ${p.firstName || p.id} — ${friendlyError(msg)}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, delay));
@@ -1310,7 +1398,7 @@ export async function executeCommand(opts: {
               failed++;
               break;
             }
-            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, 8000));
@@ -1381,7 +1469,7 @@ export async function executeCommand(opts: {
             results.push(`✓ ${p.firstName || p.id}`);
             success++;
           } catch (e: any) {
-            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, 10000));
@@ -1443,7 +1531,7 @@ export async function executeCommand(opts: {
             results.push(`✓ ${p.firstName || p.id} (غير موجود مسبقاً)`);
             success++;
           } catch (e: any) {
-            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, 10000));
@@ -1469,7 +1557,7 @@ export async function executeCommand(opts: {
             results.push(`✓ ${p.firstName || p.id}`);
             success++;
           } catch (e: any) {
-            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, 12000));
@@ -2346,7 +2434,7 @@ export async function executeCommand(opts: {
               failed++;
               break;
             }
-            results.push(`✗ ${user}: ${msg.substring(0, 40)}`);
+            results.push(`✗ ${user}: ${friendlyError(msg)}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, delay));
@@ -2426,7 +2514,7 @@ export async function executeCommand(opts: {
                 failed++;
                 break;
               }
-              results.push(`✗ ${u.firstName || u.id}: ${e.message?.substring(0, 30)}`);
+              results.push(`✗ ${u.firstName || u.id}: ${friendlyError(e.message || "")}`);
               failed++;
             }
             await new Promise((r) => setTimeout(r, delay));
@@ -2459,7 +2547,7 @@ export async function executeCommand(opts: {
               results.push(`✓ ${u.firstName || u.id}`);
               success++;
             } catch (e: any) {
-              results.push(`✗ ${u.firstName || u.id}: ${e.message?.substring(0, 30)}`);
+              results.push(`✗ ${u.firstName || u.id}: ${friendlyError(e.message || "")}`);
               failed++;
             }
             await new Promise((r) => setTimeout(r, 8000));
@@ -2608,7 +2696,7 @@ export async function executeCommand(opts: {
             results.push(`✓ ${p.firstName || p.id} (متبادل)`);
             success++;
           } catch (e: any) {
-            results.push(`✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
+            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
           await new Promise((r) => setTimeout(r, 8000));
