@@ -1,0 +1,995 @@
+"""Interactive CLI menu system."""
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+import time
+
+from ..config import get_config
+from ..core import (
+    DedupManager,
+    FloodTracker,
+    SessionManager,
+    load_phones,
+)
+from .colors import Colors
+
+
+def asyncio_run(coro):
+    """Wrapper for :func:`asyncio.run` — kept here so callers can stay sync."""
+    return asyncio.run(coro)
+
+
+# Shared flood tracker — instantiated once per process so cooldowns
+# persist across menu operations in the same session.
+_flood_tracker: FloodTracker | None = None
+
+
+def _get_flood_tracker() -> FloodTracker:
+    global _flood_tracker
+    if _flood_tracker is None:
+        _flood_tracker = FloodTracker()
+    return _flood_tracker
+
+
+def _clear() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def _banner() -> None:
+    """Print the application banner."""
+    print(f"{Colors.BRIGHT_YELLOW}{'═' * 60}{Colors.RESET}")
+    print(f"{Colors.BRIGHT_YELLOW}  NJADDER UNIFIED v1.2.1 — Professional Edition{Colors.RESET}")
+    print(f"{Colors.BRIGHT_YELLOW}  Merged from opthree.py + ramexfour.py + ts.py{Colors.RESET}")
+    print(f"{Colors.BRIGHT_YELLOW}  +5 NEW Services + LIVE Ban Checker{Colors.RESET}")
+    print(f"{Colors.BRIGHT_YELLOW}{'═' * 60}{Colors.RESET}")
+
+
+def _section(title: str) -> None:
+    print(f"{Colors.YELLOW}{'─' * 4} {title} {'─' * max(0, 50 - len(title))}{Colors.RESET}")
+
+
+def _option(num: int, text: str, color: str = Colors.GREEN) -> None:
+    print(f"  {color}[{num}]{Colors.RESET}  {Colors.BRIGHT}{text}{Colors.RESET}")
+
+
+def _back() -> None:
+    print(f"  {Colors.RED}[00]{Colors.RESET}  {Colors.RED}Back{Colors.RESET}")
+
+
+def _pause() -> None:
+    try:
+        input(f"{Colors.INFO} Press Enter to continue...")
+    except EOFError:
+        pass
+
+
+def _get_choice() -> str:
+    try:
+        return input().strip()
+    except (EOFError, KeyboardInterrupt):
+        return "00"
+
+
+def _safe_input_int(prompt: str, default: int = 0) -> int:
+    try:
+        v = input(prompt).strip()
+        return int(v) if v else default
+    except (ValueError, EOFError, KeyboardInterrupt):
+        return default
+
+
+def _safe_input_float(prompt: str, default: float = 0.0) -> float:
+    try:
+        v = input(prompt).strip()
+        return float(v) if v else default
+    except (ValueError, EOFError, KeyboardInterrupt):
+        return default
+
+
+def menu_accounts(session_mgr: SessionManager) -> None:
+    """Account management menu."""
+    _clear()
+    _banner()
+    _section("Account Management")
+    _option(1, "Login all accounts (basic — same API for all)")
+    _option(2, "SECURE LOGIN (api.csv + devices.csv + proxies.csv rotation)")
+    _option(3, "Filter banned accounts (LIVE check + auto-remove) ← v1.2.1")
+    _option(4, "Remove specific account")
+    _option(5, "OTP Viewer")
+    _option(6, "Account Info Checker")
+    _option(7, "Remove Non-Loggedin Accounts (NEW v1.2.0)")
+    _option(8, "Auto Contact Delete (NEW v1.2.0)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        from ..account.security import login_all
+        asyncio_run(login_all(session_mgr))
+    elif choice == "2":
+        from ..account.security import login_using_security
+        n = asyncio_run(login_using_security())
+        print(f"\n{Colors.SUCCESS} Secure-logged-in {n} accounts")
+    elif choice == "3":
+        # Live ban check — actually authenticate each account.
+        print(f"{Colors.INFO} Two modes:")
+        print(f"  [a] LIVE check (actually login to each account) ← recommended")
+        print(f"  [b] STATIC filter (just use existing BanNumbers.csv)")
+        mode = input(f"{Colors.INFO} Mode [a/b, default=a]: ").strip().lower() or "a"
+        if mode == "a":
+            dry = input(f"{Colors.INFO} Dry-run first (don't modify files)? [y/N]: ").strip().lower()
+            delay = _safe_input_float(f"{Colors.INFO} Delay between accounts [2.0]: ", 2.0)
+            from ..utilities.csv_tools import check_banned_accounts_live
+            n = asyncio_run(check_banned_accounts_live(
+                session_mgr,
+                delay=delay,
+                auto_remove_banned=not dry.startswith("y"),
+            ))
+            print(f"\n{Colors.SUCCESS} Found {n} banned accounts")
+        else:
+            from ..utilities.csv_tools import ban_filter
+            removed = ban_filter()
+            print(f"\n{Colors.SUCCESS} Removed {removed} banned numbers (static)")
+    elif choice == "4":
+        from ..utilities.csv_tools import specific_acc_remove
+        specific_acc_remove()
+    elif choice == "5":
+        from ..account.security import otp_viewer
+        otp_viewer()
+    elif choice == "6":
+        from ..account.profile import account_info_getter
+        account_info_getter()
+    elif choice == "7":
+        from ..account.security import remove_non_loggedin_accounts
+        dry = input(f"{Colors.INFO} Dry-run first? [Y/n]: ").strip().lower()
+        n = asyncio_run(remove_non_loggedin_accounts(session_mgr, dry_run=(not dry.startswith("n"))))
+        print(f"\n{Colors.SUCCESS} Removed {n} non-loginable accounts")
+    elif choice == "8":
+        from ..utilities.csv_tools import auto_contact_delete
+        confirm = input(f"{Colors.WARNING} Delete ALL contacts from ALL accounts? [y/N]: ").strip().lower()
+        if confirm.startswith("y"):
+            n = asyncio_run(auto_contact_delete(session_mgr))
+            print(f"\n{Colors.SUCCESS} Deleted {n} contacts total")
+        else:
+            print(f"{Colors.INFO} Aborted")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_scrapers(session_mgr: SessionManager) -> None:
+    """Scrapers menu."""
+    _clear()
+    _banner()
+    _section("Scrapers (Data Collection)")
+    _option(1, "Public Scraper (group members)")
+    _option(2, "Private Scraper (private groups)")
+    _option(3, "Hidden Scraper (from chat history)")
+    _option(4, "Full Scraper (A-Z distribution)")
+    _option(5, "Premium Scraper (premium only)")
+    _option(6, "Private Hidden Scraper (private + history)")
+    _option(7, "Filter members → CSV (all/daily/weekly/online/...)")
+    _option(8, "Scrape + add as contacts (no group)")
+    _option(9, "Scrape + add as contacts AND target group")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice in ("1", "2", "3", "4", "5", "6"):
+        source = input(f"{Colors.INFO} Source group (@username or link): ").strip()
+        if not source:
+            return
+        max_per = _safe_input_int(f"{Colors.INFO} Max per account (default 50): ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay (default 1.0): ", 1.0)
+        modes = {
+            "1": "public", "2": "private", "3": "hidden",
+            "4": "full", "5": "premium", "6": "pvt_hidden",
+        }
+        from ..scrapers import run_scraper
+
+        result = asyncio_run(run_scraper(modes[choice], source, None, max_per, delay))
+        print(f"\n{Colors.SUCCESS} Scraped {result.scraped} members")
+    elif choice == "7":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        mode = input(f"{Colors.INFO} Mode [all/daily/weekly/monthly/online/nonactive/hidden] [all]: ").strip().lower() or "all"
+        limit = _safe_input_int(f"{Colors.INFO} Max members [5000]: ", 5000)
+        out = input(f"{Colors.INFO} Output CSV [filtered.csv]: ").strip() or "filtered.csv"
+        if source:
+            from ..scrapers import filter_members_to_csv
+            n = asyncio_run(filter_members_to_csv(session_mgr, source, mode, out, limit))
+            print(f"\n{Colors.SUCCESS} Wrote {n} members → {out}")
+    elif choice == "8":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        max_per = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if source:
+            from ..scrapers import scrape_to_contacts
+            n = asyncio_run(scrape_to_contacts(session_mgr, source, max_per, delay))
+            print(f"\n{Colors.SUCCESS} Added {n} contacts")
+    elif choice == "9":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        max_per = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if source and target:
+            from ..scrapers import scrape_to_contacts_and_group
+            from ..core import DedupManager, FloodTracker
+            n = asyncio_run(scrape_to_contacts_and_group(
+                session_mgr, source, target, max_per, delay,
+                dedup=DedupManager(), flood_tracker=_get_flood_tracker(),
+            ))
+            print(f"\n{Colors.SUCCESS} Added {n} members to target")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_adders(session_mgr: SessionManager, dedup: DedupManager) -> None:
+    """Outreach adders menu."""
+    _clear()
+    _banner()
+    _section("Outreach Adders")
+    _option(1, "Direct Adder (source → target group)")
+    _option(2, "Contact Adder (with add_contact first)")
+    _option(3, "Bulk Adder (batch contacts)")
+    _option(4, "Add: data.csv → Contacts (no repeat)  ← v43 NEW")
+    _option(5, "Add: Contacts → Target Group (no repeat)  ← v43 NEW")
+    _option(6, "Ramex Adder (scrape + add in one step)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    max_per = _safe_input_int(f"{Colors.INFO} Max per account (default 50): ", 50)
+    delay = _safe_input_float(f"{Colors.INFO} Delay (default 2.0): ", 2.0)
+
+    flood = _get_flood_tracker()
+    extra = ""
+    if choice == "1":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if source and target:
+            from ..adders.direct import DirectAdder
+
+            adder = DirectAdder(get_config(), session_mgr, dedup, flood)
+            result = asyncio_run(adder.run(source, target, max_per, delay))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice == "2":
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        if target and source:
+            from ..adders.contact import ContactAdder
+
+            adder = ContactAdder(get_config(), session_mgr, dedup, flood)
+            result = asyncio_run(adder.run(source, target, max_per, delay))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice == "3":
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if target:
+            from ..adders.bulk import BulkAdder
+
+            adder = BulkAdder(get_config(), session_mgr, dedup, flood)
+            result = asyncio_run(adder.run(target, max_per, delay))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice == "4":
+        from ..adders.file_to_contacts import FileToContactsAdder
+
+        adder = FileToContactsAdder(get_config(), session_mgr, dedup, flood)
+        result = asyncio_run(adder.run(max_per, delay))
+        print(f"\n{Colors.SUCCESS} Added {result.success} contacts")
+    elif choice == "5":
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if target:
+            from ..adders.contacts_to_group import ContactsToGroupAdder
+
+            adder = ContactsToGroupAdder(get_config(), session_mgr, dedup, flood)
+            result = asyncio_run(adder.run(target, max_per, delay))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice == "6":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if source and target:
+            from ..adders.ramex import RamexAdder
+
+            adder = RamexAdder(get_config(), session_mgr, dedup, flood)
+            result = asyncio_run(adder.run(source, target, max_per, delay))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_filters(session_mgr: SessionManager, dedup: DedupManager) -> None:
+    """Filters menu (from ramexfour)."""
+    _clear()
+    _banner()
+    _section("Filter Adders (from ramexfour)")
+    _option(1, "Daily Active Adder")
+    _option(2, "Weekly Active Adder")
+    _option(3, "Monthly Active Adder")
+    _option(4, "Online Member Adder")
+    _option(5, "Non-Active Member Adder")
+    _option(6, "Hidden Member Adder")
+    _option(7, "Single-account Filter Adder (pick one account, add by username)")
+    _option(8, "Live Group Filter (remove data.csv rows already in target)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    modes = {"1": "daily", "2": "weekly", "3": "monthly", "4": "online", "5": "nonactive", "6": "hidden"}
+    if choice in modes:
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if source and target:
+            max_per = _safe_input_int(f"{Colors.INFO} Max per account (default 50): ", 50)
+            delay = _safe_input_float(f"{Colors.INFO} Delay (default 2.0): ", 2.0)
+            from ..adders.ramex import RamexAdder
+
+            adder = RamexAdder(get_config(), session_mgr, dedup, _get_flood_tracker())
+            result = asyncio_run(adder.run(source, target, max_per, delay, mode=modes[choice]))
+            extra = f", {len(result.flooded_accounts)} flooded"
+            print(f"\n{Colors.SUCCESS} Added {result.success} members{extra}")
+    elif choice == "7":
+        # Single-account filter adder
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        acct_idx = _safe_input_int(f"{Colors.INFO} Account # in phone.csv (1-based) [1]: ", 1)
+        max_adds = _safe_input_int(f"{Colors.INFO} Max adds (default 50): ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay (default 2.0): ", 2.0)
+        if target:
+            from ..utilities.csv_tools import single_filter_adder
+            n = asyncio_run(single_filter_adder(session_mgr, target, acct_idx, max_adds, delay))
+            print(f"\n{Colors.SUCCESS} Added {n} members from data.csv")
+    elif choice == "8":
+        # Live group filter
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if target:
+            from ..utilities.csv_tools import filter_data_csv_against_group
+            n = asyncio_run(filter_data_csv_against_group(session_mgr, target))
+            print(f"\n{Colors.SUCCESS} Removed {n} rows from data.csv (already in target)")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_nearby(session_mgr: SessionManager, dedup: DedupManager) -> None:
+    """Nearby adder menu (from ramexfour)."""
+    _clear()
+    _banner()
+    _section("Nearby Adder (by country)")
+    _option(1, "Auto-detect (20 countries)")
+    _option(2, "By Lat/Long")
+    _option(3, "By City")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        if target:
+            from ..nearby.countries import NearbyAdder
+
+            adder = NearbyAdder(get_config(), session_mgr, dedup, _get_flood_tracker())
+            result = asyncio_run(adder.run(target, max_per=50, delay=2.0))
+            print(f"\n{Colors.SUCCESS} Added {result.success} members")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_messaging(session_mgr: SessionManager) -> None:
+    """Messaging menu (from ts.py)."""
+    _clear()
+    _banner()
+    _section("Messaging (from ts.py)")
+    _option(1, "Send Message to Group")
+    _option(2, "Send Message + Photo to Group")
+    _option(3, "Multi-Message → One Group (from message.csv)")
+    _option(4, "Forward to Channels (with tag)")
+    _option(5, "Forward without Tag (anonymous copy)")
+    _option(6, "Send DM (PM spam) to @username")
+    _option(7, "Send DM + Photo")
+    _option(8, "Multi-Message → Multi-Groups")
+    _option(9, "Single Message → Multi-Groups")
+    _option(10, "DM all usernames in data.csv")
+    _option(11, "DM + photo all usernames in data.csv")
+    _option(12, "Ramex sender (scrape group + DM each)")
+    _option(13, "Single-account: msg → 1 group (N copies)")
+    _option(14, "Single-account: photo → 1 group (N copies)")
+    _option(15, "Single-account: photo → multi groups")
+    _option(16, "Multi-msg + photo → 1 group")
+    _option(17, "Multi-msg + photo → multi groups")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        from ..messaging.group import send_to_group
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        if target and msg:
+            n = asyncio_run(send_to_group(session_mgr, target, msg))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "2":
+        from ..messaging.group import send_to_group_with_photo
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        if target and msg and photo:
+            n = asyncio_run(send_to_group_with_photo(session_mgr, target, msg, photo))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "3":
+        from ..messaging.group import send_multi_msg_single_group, load_messages_csv
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        msgs = load_messages_csv()
+        per_acct = _safe_input_int(f"{Colors.INFO} Sends per account [10]: ", 10)
+        if target and msgs:
+            n = asyncio_run(send_multi_msg_single_group(session_mgr, target, msgs, per_acct))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "4":
+        from ..messaging.forward import forward_to_channels
+        source = input(f"{Colors.INFO} Source channel: ").strip()
+        targets = input(f"{Colors.INFO} Target channels (comma-sep): ").strip().split(",")
+        targets = [t.strip() for t in targets if t.strip()]
+        if source and targets:
+            n = asyncio_run(forward_to_channels(session_mgr, source, targets))
+            print(f"\n{Colors.SUCCESS} Forwarded {n} messages")
+    elif choice == "5":
+        from ..messaging.forward import forward_without_tag
+        source = input(f"{Colors.INFO} Source channel: ").strip()
+        targets = input(f"{Colors.INFO} Target channels (comma-sep): ").strip().split(",")
+        targets = [t.strip() for t in targets if t.strip()]
+        if source and targets:
+            n = asyncio_run(forward_without_tag(session_mgr, source, targets))
+            print(f"\n{Colors.SUCCESS} Copied {n} messages (no tag)")
+    elif choice == "6":
+        from ..messaging.group import send_dm
+        uname = input(f"{Colors.INFO} Target @username: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        if uname and msg:
+            n = asyncio_run(send_dm(session_mgr, uname, msg))
+            print(f"\n{Colors.SUCCESS} Sent {n} DMs")
+    elif choice == "7":
+        from ..messaging.group import send_dm_with_photo
+        uname = input(f"{Colors.INFO} Target @username: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        if uname and msg and photo:
+            n = asyncio_run(send_dm_with_photo(session_mgr, uname, msg, photo))
+            print(f"\n{Colors.SUCCESS} Sent {n} DMs+photo")
+    elif choice == "8":
+        from ..messaging.group import (
+            send_multi_msg_multi_groups,
+            load_messages_csv,
+            load_groups_csv,
+        )
+        groups = load_groups_csv()
+        msgs = load_messages_csv()
+        per_acct = _safe_input_int(f"{Colors.INFO} Sends per account [10]: ", 10)
+        if groups and msgs:
+            n = asyncio_run(send_multi_msg_multi_groups(session_mgr, groups, msgs, per_acct))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "9":
+        from ..messaging.group import send_single_msg_multi_groups, load_groups_csv
+        groups = load_groups_csv()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        if groups and msg:
+            n = asyncio_run(send_single_msg_multi_groups(session_mgr, groups, msg))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "10":
+        from ..messaging.group import send_dm_from_data_csv
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        per_acct = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if msg:
+            n = asyncio_run(send_dm_from_data_csv(session_mgr, msg, per_acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} DMs")
+    elif choice == "11":
+        from ..messaging.group import send_dm_with_photo_from_data_csv
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        per_acct = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if msg and photo:
+            n = asyncio_run(send_dm_with_photo_from_data_csv(session_mgr, msg, photo, per_acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} DMs+photo")
+    elif choice == "12":
+        from ..messaging.group import ramex_sender
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        per_acct = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if source and msg:
+            n = asyncio_run(ramex_sender(session_mgr, source, msg, per_acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} DMs")
+    elif choice == "13":
+        from ..messaging.group import send_message_single_account
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        acct = _safe_input_int(f"{Colors.INFO} Account # [1]: ", 1)
+        n_sends = _safe_input_int(f"{Colors.INFO} Num sends [5]: ", 5)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if target and msg:
+            n = asyncio_run(send_message_single_account(session_mgr, target, msg, acct, n_sends, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "14":
+        from ..messaging.group import send_photo_single_account
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        caption = input(f"{Colors.INFO} Caption: ").strip()
+        acct = _safe_input_int(f"{Colors.INFO} Account # [1]: ", 1)
+        n_sends = _safe_input_int(f"{Colors.INFO} Num sends [5]: ", 5)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if target and photo:
+            n = asyncio_run(send_photo_single_account(session_mgr, target, photo, caption, acct, n_sends, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} photos")
+    elif choice == "15":
+        from ..messaging.group import send_photo_to_multi_groups_single_account, load_groups_csv
+        groups = load_groups_csv()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        caption = input(f"{Colors.INFO} Caption: ").strip()
+        acct = _safe_input_int(f"{Colors.INFO} Account # [1]: ", 1)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if groups and photo:
+            n = asyncio_run(send_photo_to_multi_groups_single_account(session_mgr, groups, photo, caption, acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} photos")
+    elif choice == "16":
+        from ..messaging.group import send_multi_msg_with_photo_single_group, load_messages_csv
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        msgs = load_messages_csv()
+        per_acct = _safe_input_int(f"{Colors.INFO} Sends per account [10]: ", 10)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if target and photo and msgs:
+            n = asyncio_run(send_multi_msg_with_photo_single_group(session_mgr, target, msgs, photo, per_acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages+photo")
+    elif choice == "17":
+        from ..messaging.group import (
+            send_multi_msg_with_photo_multi_groups,
+            load_messages_csv,
+            load_groups_csv,
+        )
+        groups = load_groups_csv()
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        msgs = load_messages_csv()
+        per_acct = _safe_input_int(f"{Colors.INFO} Sends per account [10]: ", 10)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if groups and photo and msgs:
+            n = asyncio_run(send_multi_msg_with_photo_multi_groups(session_mgr, groups, msgs, photo, per_acct, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages+photo")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_reports(session_mgr: SessionManager) -> None:
+    """Reports menu (from opthree)."""
+    _clear()
+    _banner()
+    _section("Reports (from opthree.py)")
+    _option(1, "Report: Fake")
+    _option(2, "Report: Spam")
+    _option(3, "Report: Violence")
+    _option(4, "Report: Child Abuse")
+    _option(5, "Report: Copyright")
+    _option(6, "Report: Geo Irrelevant")
+    _option(7, "Report: Personal Details")
+    _option(8, "Report: Illegal Drugs")
+    _option(9, "Report: Pornography")
+    _option(10, "Report: Others")
+    _option(11, "Report USER (by @username)")
+    _option(12, "Send Scam Report → @notoscam")
+    _back()
+    print()
+    choice = _get_choice()
+
+    reasons = {
+        "1": "fake", "2": "spam", "3": "violence", "4": "childabuse",
+        "5": "copyright", "6": "geoirrelevant", "7": "personaldetails",
+        "8": "illegaldrugs", "9": "pornography", "10": "others",
+    }
+    if choice in reasons:
+        channel = input(f"{Colors.INFO} Channel (@username): ").strip()
+        post_id = _safe_input_int(f"{Colors.INFO} Post ID: ", 0)
+        if channel:
+            from ..reports.reasons import run_report
+
+            result = asyncio_run(run_report(session_mgr, reasons[choice], channel, post_id, 5, 2.0))
+            print(f"\n{Colors.SUCCESS} Sent {result.success} reports")
+    elif choice == "11":
+        username = input(f"{Colors.INFO} Target user @username: ").strip()
+        reason_input = input(
+            f"{Colors.INFO} Reason (fake/spam/violence/.../others) [spam]: "
+        ).strip().lower() or "spam"
+        msg = input(f"{Colors.INFO} Optional message: ").strip()
+        if username:
+            from ..reports.reasons import report_user
+
+            result = asyncio_run(report_user(session_mgr, username, reason_input, msg))
+            print(f"\n{Colors.SUCCESS} Sent {result.success} user reports")
+    elif choice == "12":
+        msg = input(f"{Colors.INFO} Scam report message: ").strip()
+        if msg:
+            from ..reports.reasons import send_scam_report
+            n = asyncio_run(send_scam_report(session_mgr, msg))
+            print(f"\n{Colors.SUCCESS} Sent {n} scam reports")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_account_tools(session_mgr: SessionManager) -> None:
+    """Account tools menu."""
+    _clear()
+    _banner()
+    _section("Account Tools")
+    _option(1, "Change First/Last Name & Bio")
+    _option(2, "Set Username (same for all)")
+    _option(3, "Set Profile Picture")
+    _option(4, "Remove Profile Picture")
+    _option(5, "Enable 2-Step Verification")
+    _option(6, "Set Usernames from CSV (per-account)")
+    _option(7, "Generate Random Usernames → username.csv")
+    _option(8, "Set Random Realistic Name (NEW v1.2.0)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        from ..account.profile import changer_account
+        asyncio_run(changer_account(session_mgr))
+    elif choice == "2":
+        print(f"{Colors.WARNING} Note: same username → only 1 account can own it.")
+        print(f"{Colors.WARNING} Note: 5-7 char names are often Premium-reserved.")
+        uname = input(f"{Colors.INFO} Username (no @, 8+ chars recommended): ").strip()
+        if uname:
+            from ..account.profile import set_username
+            n = asyncio_run(set_username(session_mgr, uname))
+            if n == 0:
+                print(f"\n{Colors.ERROR} Failed on ALL accounts.")
+                print(f"{Colors.INFO} Suggested fixes:")
+                print(f"  - Use 10+ chars (e.g., add digits or underscores)")
+                print(f"  - Use 'Set Usernames from CSV' for per-account unique names")
+                print(f"  - Generate random: option 7")
+            else:
+                print(f"\n{Colors.SUCCESS} Set on {n} accounts")
+    elif choice == "3":
+        photo = input(f"{Colors.INFO} Photo path: ").strip()
+        if photo:
+            from ..account.profile import set_profile_pic
+            asyncio_run(set_profile_pic(session_mgr, photo))
+    elif choice == "4":
+        from ..account.profile import remove_profile_pic
+        n = asyncio_run(remove_profile_pic(session_mgr))
+        print(f"\n{Colors.SUCCESS} Removed from {n} accounts")
+    elif choice == "5":
+        print(f"{Colors.WARNING} Note: Telegram requires 2FA password to be 8+ chars.")
+        print(f"{Colors.WARNING} Note: If accounts have DIFFERENT current passwords,")
+        print(f"{Colors.WARNING}       use 2fa_passwords.csv (columns: phone,current_password).")
+        pwd = input(f"{Colors.INFO} New 2FA password (8+ chars): ").strip()
+        cur = input(f"{Colors.INFO} Current password (or empty if no 2FA yet): ").strip()
+        use_csv = input(
+            f"{Colors.INFO} Use 2fa_passwords.csv for per-account current passwords? [y/N]: "
+        ).strip().lower()
+        csv_path = "2fa_passwords.csv" if use_csv.startswith("y") else None
+
+        if not pwd:
+            print(f"{Colors.ERROR} Empty new password — aborted")
+        elif len(pwd) < 8:
+            print(f"{Colors.ERROR} Password too short ({len(pwd)} < 8) — Telegram rejects this")
+        else:
+            from ..account.security import set_2fa_password
+            n = asyncio_run(set_2fa_password(session_mgr, pwd, cur, per_account_passwords_csv=csv_path))
+            if n == 0:
+                print(f"\n{Colors.ERROR} Failed on ALL accounts.")
+                print(f"{Colors.INFO} Most likely causes:")
+                print(f"  1. Wrong current password (PASSWORD_HASH_INVALID)")
+                print(f"  2. Account already has 2FA but you didn't supply current password")
+                print(f"  3. New password is too short (< 8 chars)")
+                print(f"{Colors.INFO} Solution:")
+                print(f"  - If accounts have different 2FA passwords:")
+                print(f"    Create 2fa_passwords.csv with columns: phone,current_password")
+                print(f"    then re-run with the 'y' option above.")
+            else:
+                print(f"\n{Colors.SUCCESS} 2FA set on {n} accounts")
+    elif choice == "6":
+        from ..account.profile import set_usernames_from_csv
+        n = asyncio_run(set_usernames_from_csv(session_mgr))
+        print(f"\n{Colors.SUCCESS} Set on {n} accounts")
+    elif choice == "7":
+        n = _safe_input_int(f"{Colors.INFO} How many usernames? ", 10)
+        length = _safe_input_int(f"{Colors.INFO} Length (5-32, 10+ avoids premium-reserved) [10]: ", 10)
+        from ..account.profile import generate_usernames_file
+        generate_usernames_file(n, length=length)
+        print(f"\n{Colors.SUCCESS} Wrote {n} usernames to username.csv")
+    elif choice == "8":
+        print(f"{Colors.INFO} Available genders: boy / girl / any")
+        gender = input(f"{Colors.INFO} Gender [any]: ").strip().lower() or "any"
+        if gender not in ("boy", "girl", "any"):
+            print(f"{Colors.ERROR} Invalid gender — using 'any'")
+            gender = "any"
+        unique = input(f"{Colors.INFO} Unique per account? [Y/n]: ").strip().lower()
+        unique_per = not unique.startswith("n")
+        from ..account.profile import set_random_realistic_name
+        n = asyncio_run(set_random_realistic_name(session_mgr, gender=gender, use_unique_per_account=unique_per))
+        if n == 0:
+            print(f"\n{Colors.ERROR} Failed on ALL accounts.")
+        else:
+            print(f"\n{Colors.SUCCESS} Set realistic {gender} names on {n} accounts")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_utilities() -> None:
+    """Utilities menu."""
+    _clear()
+    _banner()
+    _section("Utilities")
+    _option(1, "CSV Blank Remover")
+    _option(2, "Auto-Remove Banned Numbers")
+    _option(3, "Limit Checker/Remover (@spambot)")
+    _option(4, "Group Chat Cloner")
+    _option(5, "Auto Group Maker")
+    _option(6, "VCF → numbers.csv (extract only)")
+    _option(7, "Status (files + dedup)")
+    _option(8, "Delete already-done from data.csv")
+    _option(9, "Check numbers (Telegram registration)")
+    _option(10, "Import VCF as contacts (addtocontactbyimp)")
+    _option(11, "Anonymous Chatter (N msgs/chat from all accounts)")
+    _option(12, "Post Views Increaser (NEW v1.2.0)")
+    _option(13, "Make API ID + Hash Generator (NEW v1.2.0)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        from ..utilities.csv_tools import csv_blank_remover
+        csv_blank_remover()
+    elif choice == "2":
+        from ..utilities.csv_tools import auto_remove
+        auto_remove()
+    elif choice == "3":
+        from ..utilities.csv_tools import limit_check_and_remove
+        from ..core import SessionManager
+        n = asyncio_run(limit_check_and_remove(SessionManager()))
+        print(f"\n{Colors.SUCCESS} Processed {n} accounts")
+    elif choice == "4":
+        source = input(f"{Colors.INFO} Source group: ").strip()
+        target = input(f"{Colors.INFO} Target group: ").strip()
+        n_msgs = _safe_input_int(f"{Colors.INFO} Num messages: ", 100)
+        if source and target:
+            from ..utilities.csv_tools import group_chat_cloner
+            from ..core import SessionManager
+            n = asyncio_run(group_chat_cloner(SessionManager(), source, target, n_msgs))
+            print(f"\n{Colors.SUCCESS} Copied {n} messages")
+    elif choice == "5":
+        per = _safe_input_int(f"{Colors.INFO} Groups per account: ", 5)
+        from ..utilities.csv_tools import auto_group_maker
+        from ..core import SessionManager
+        n = asyncio_run(auto_group_maker(SessionManager(), per_account=per))
+        print(f"\n{Colors.SUCCESS} Created {n} groups")
+    elif choice == "6":
+        vcf = input(f"{Colors.INFO} VCF file path: ").strip()
+        if vcf:
+            from ..utilities.csv_tools import extract_vcf_to_numbers
+            n = extract_vcf_to_numbers(vcf)
+            print(f"\n{Colors.SUCCESS} Extracted {n} numbers → numbers.csv")
+    elif choice == "7":
+        _show_status()
+    elif choice == "8":
+        from ..utilities.csv_tools import delete_already_filter
+        n = delete_already_filter()
+        print(f"\n{Colors.SUCCESS} Removed {n} rows from data.csv")
+    elif choice == "9":
+        from ..utilities.csv_tools import check_numbers
+        from ..core import SessionManager
+        n = asyncio_run(check_numbers(SessionManager()))
+        print(f"\n{Colors.SUCCESS} Found {n} valid numbers")
+    elif choice == "10":
+        vcf = input(f"{Colors.INFO} VCF file path: ").strip()
+        per = _safe_input_int(f"{Colors.INFO} Max per account [50]: ", 50)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if vcf:
+            from ..utilities.csv_tools import import_vcf_as_contacts
+            from ..core import SessionManager
+            n = asyncio_run(import_vcf_as_contacts(SessionManager(), vcf, per, delay))
+            print(f"\n{Colors.SUCCESS} Imported {n} contacts")
+    elif choice == "11":
+        target = input(f"{Colors.INFO} Target chat/group: ").strip()
+        msg = input(f"{Colors.INFO} Message: ").strip()
+        n_per = _safe_input_int(f"{Colors.INFO} Messages per account [5]: ", 5)
+        delay = _safe_input_float(f"{Colors.INFO} Delay [2.0]: ", 2.0)
+        if target and msg:
+            from ..utilities.csv_tools import anonymous_chatter
+            from ..core import SessionManager
+            n = asyncio_run(anonymous_chatter(SessionManager(), target, msg, n_per, delay))
+            print(f"\n{Colors.SUCCESS} Sent {n} messages")
+    elif choice == "12":
+        # Post Views Increaser
+        from ..core import SessionManager
+        target = input(f"{Colors.INFO} Channel/group link: ").strip()
+        max_id = _safe_input_int(f"{Colors.INFO} Max post ID [100]: ", 100)
+        delay_acc = _safe_input_float(f"{Colors.INFO} Delay between accounts [2.0]: ", 2.0)
+        delay_post = _safe_input_float(f"{Colors.INFO} Delay between posts [0.3]: ", 0.3)
+        if target and max_id > 0:
+            from ..utilities.csv_tools import post_views_increaser
+            n = asyncio_run(post_views_increaser(
+                SessionManager(), target, max_id,
+                delay_between_accounts=delay_acc,
+                delay_between_posts=delay_post,
+            ))
+            print(f"\n{Colors.SUCCESS} Performed {n} post reads across all accounts")
+    elif choice == "13":
+        # Make API ID + Hash Generator
+        from ..utilities.csv_tools import make_api_id_hash_generator
+        interactive = input(f"{Colors.INFO} Interactive mode? [Y/n]: ").strip().lower()
+        append = input(f"{Colors.INFO} Append to api.csv? [y/N]: ").strip().lower()
+        make_api_id_hash_generator(
+            out_csv="api.csv",
+            interactive=not interactive.startswith("n"),
+            append=append.startswith("y"),
+        )
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def menu_groups(session_mgr: SessionManager) -> None:
+    """Groups menu: mass join / leave groups."""
+    _clear()
+    _banner()
+    _section("Group Management")
+    _option(1, "Join one group (all accounts)")
+    _option(2, "Join groups from CSV (groups.csv)")
+    _option(3, "Leave one group (all accounts)")
+    _option(4, "Leave groups from CSV (groups.csv)")
+    _back()
+    print()
+    choice = _get_choice()
+
+    if choice == "1":
+        grp = input(f"{Colors.INFO} Group @username/link: ").strip()
+        if grp:
+            from ..groups import join_groups
+            n = asyncio_run(join_groups(session_mgr, [grp]))
+            print(f"\n{Colors.SUCCESS} {n} joins")
+    elif choice == "2":
+        from ..groups import join_from_csv
+        n = asyncio_run(join_from_csv(session_mgr))
+        print(f"\n{Colors.SUCCESS} {n} joins")
+    elif choice == "3":
+        grp = input(f"{Colors.INFO} Group @username/link: ").strip()
+        if grp:
+            from ..groups import leave_groups
+            n = asyncio_run(leave_groups(session_mgr, [grp]))
+            print(f"\n{Colors.SUCCESS} {n} leaves")
+    elif choice == "4":
+        # Reuse the loader from messaging.group (simpler).
+        from ..groups import leave_groups
+        from ..messaging.group import load_groups_csv
+        groups = load_groups_csv("groups.csv")
+        if groups:
+            n = asyncio_run(leave_groups(session_mgr, groups))
+            print(f"\n{Colors.SUCCESS} {n} leaves")
+        else:
+            print(f"{Colors.WARNING} groups.csv empty or missing")
+    elif choice in ("0", "00"):
+        return
+    _pause()
+
+
+def _show_status() -> None:
+    """Show status of files and dedup state."""
+    from pathlib import Path
+
+    _clear()
+    _banner()
+    _section("Status")
+    print()
+
+    data_file = Path("data.csv")
+    if data_file.exists():
+        import csv as csv_mod
+
+        with open(data_file, "r", encoding="utf-8") as f:
+            count = sum(1 for _ in csv_mod.DictReader(f))
+        print(f"  data.csv: {Colors.GREEN}{count} members{Colors.RESET}")
+    else:
+        print(f"  data.csv: {Colors.RED}not found{Colors.RESET}")
+
+    phones = load_phones()
+    print(f"  phone.csv: {Colors.GREEN}{len(phones)} accounts{Colors.RESET}")
+
+    sessions = list(Path("sessions").glob("*.session")) if Path("sessions").exists() else []
+    print(f"  sessions: {Colors.GREEN}{len(sessions)} files{Colors.RESET}")
+
+    # PeerFlood cooldown status.
+    flood = _get_flood_tracker()
+    flood_summary = flood.summary()
+    in_cd = flood_summary["in_cooldown"]
+    total = flood_summary["total"]
+    if in_cd > 0:
+        print(
+            f"  flooded.csv: {Colors.RED}{in_cd} account(s) in 24h cooldown{Colors.RESET} "
+            f"({total} total tracked)"
+        )
+    elif total > 0:
+        print(
+            f"  flooded.csv: {Colors.GREEN}0 in cooldown{Colors.RESET} "
+            f"({total} previously flooded)"
+        )
+    else:
+        print(f"  flooded.csv: {Colors.GREEN}no PeerFlood events recorded{Colors.RESET}")
+
+    # Dedup state.
+    dedup = DedupManager()
+    print(f"  done.csv: {Colors.GREEN}{dedup.count()} done{Colors.RESET}")
+
+    print()
+    _pause()
+
+
+def main_menu() -> None:
+    """Main menu loop."""
+    cfg = get_config()
+    ok, msg = cfg.validate()
+    if not ok:
+        print(f"{Colors.ERROR} Configuration invalid: {msg}")
+        print(f"{Colors.INFO} Edit config.ini with API_ID and API_HASH")
+        print(f"{Colors.INFO} Get them from https://my.telegram.org")
+        sys.exit(1)
+
+    session_mgr = SessionManager()
+    dedup = DedupManager()
+
+    while True:
+        _clear()
+        _banner()
+        print(f"  {Colors.BRIGHT}{Colors.BG_CYAN}{Colors.BLACK} === Main Menu === {Colors.RESET}\n")
+        _option(1, "Accounts (Login + Management)")
+        _option(2, "Scrapers (Public/Private/Hidden/Full)")
+        _option(3, "Adders (Direct/Contact/Bulk/Ramex)")
+        _option(4, "Filters (Daily/Weekly/Online/Hidden)")
+        _option(5, "Nearby Adder (20 countries)")
+        _option(6, "Messaging (Send/Forward/DM/Multi-msg)")
+        _option(7, "Reports (10 reasons + user-report)")
+        _option(8, "Account Tools (Profile/2FA/Username)")
+        _option(9, "Utilities (CSV/VCF/Spam/Status)")
+        _option(10, "Groups (Mass Join/Leave)")
+        print()
+        _option(0, "Exit", Colors.RED)
+        print()
+        choice = _get_choice()
+
+        if choice == "1":
+            menu_accounts(session_mgr)
+        elif choice == "2":
+            menu_scrapers(session_mgr)
+        elif choice == "3":
+            menu_adders(session_mgr, dedup)
+        elif choice == "4":
+            menu_filters(session_mgr, dedup)
+        elif choice == "5":
+            menu_nearby(session_mgr, dedup)
+        elif choice == "6":
+            menu_messaging(session_mgr)
+        elif choice == "7":
+            menu_reports(session_mgr)
+        elif choice == "8":
+            menu_account_tools(session_mgr)
+        elif choice == "9":
+            menu_utilities()
+        elif choice == "10":
+            menu_groups(session_mgr)
+        elif choice in ("0", "00", "exit", "quit"):
+            print(f"{Colors.INFO} Goodbye!")
+            sys.exit(0)
+        else:
+            print(f"{Colors.ERROR} Invalid option")
+            time.sleep(1)
