@@ -22,46 +22,91 @@ interface BulkResult {
 export function BulkLogin() {
   const [phones, setPhones] = useState('');
   const [busy, setBusy] = useState(false);
-  const [results, setResults] = useState<BulkResult[] | null>(null);
-  const [summary, setSummary] = useState<{ total: number; codeSent: number; alreadyLoggedIn: number; errors: number } | null>(null);
+  const [currentIdx, setCurrentIdx] = useState(-1);
+  const [results, setResults] = useState<BulkResult[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showVerify, setShowVerify] = useState(false);
+
+  // Verify section
   const [verifyPhone, setVerifyPhone] = useState('');
   const [verifyCode, setVerifyCode] = useState('');
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyResult, setVerifyResult] = useState<string | null>(null);
 
+  const phoneList = phones.split('\n').map((p) => {
+    let phone = p.trim();
+    if (!phone) return '';
+    if (!phone.startsWith('+')) phone = '+' + phone.replace(/\D/g, '');
+    return phone;
+  }).filter(Boolean);
+
   const sendBulkCodes = async () => {
-    const phoneList = phones.split('\n').map((p) => p.trim()).filter(Boolean);
     if (phoneList.length === 0) return;
 
     setBusy(true);
     setError(null);
-    setResults(null);
-    setSummary(null);
+    setResults([]);
+    setCurrentIdx(0);
 
-    try {
-      const res = await fetch('/api/telegram/bulk-send-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phones: phoneList }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setResults(data.results);
-        setSummary(data.summary);
-        if (data.summary.codeSent > 0) {
-          setShowVerify(true);
+    const allResults: BulkResult[] = [];
+
+    // Send code to each phone ONE BY ONE (avoids Vercel 10s timeout)
+    for (let i = 0; i < phoneList.length; i++) {
+      setCurrentIdx(i);
+      const phone = phoneList[i];
+
+      try {
+        const res = await fetch('/api/telegram/send-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phone }),
+        });
+
+        // Handle non-JSON responses (Vercel errors)
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { ok: false, error: 'SERVER_ERROR', message: text.substring(0, 100) || 'استجابة غير صالحة من الخادم' };
         }
-      } else {
-        setError(data.error || data.message || 'فشل');
+
+        if (data.ok) {
+          allResults.push({
+            phone: data.phone || phone,
+            status: data.status,
+            message: data.message || '',
+            next_step: data.next_step,
+          });
+        } else {
+          allResults.push({
+            phone,
+            status: 'error',
+            message: data.message || data.error || 'فشل',
+          });
+        }
+      } catch (e: any) {
+        allResults.push({
+          phone,
+          status: 'error',
+          message: e.message || 'خطأ في الاتصال',
+        });
       }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
+
+      setResults([...allResults]);
+
+      // Small delay between phones (only if not the last one)
+      if (i < phoneList.length - 1) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
+
+    setCurrentIdx(-1);
+    setBusy(false);
   };
+
+  const codeSentCount = results.filter((r) => r.status === 'code_sent').length;
+  const alreadyCount = results.filter((r) => r.status === 'already_logged_in').length;
+  const errorCount = results.filter((r) => r.status === 'error').length;
 
   const verifyCodeNow = async () => {
     setVerifyBusy(true);
@@ -76,8 +121,12 @@ export function BulkLogin() {
       if (data.ok) {
         if (data.status === 'logged_in') {
           setVerifyResult(`✅ تم تسجيل دخول ${verifyPhone} بنجاح! (${data.user?.first_name || ''})`);
+          // Update results to mark this phone as logged in
+          setResults(results.map((r) =>
+            r.phone === verifyPhone ? { ...r, status: 'logged_in', message: 'تم تسجيل الدخول ✓' } : r
+          ));
         } else if (data.status === '2fa_required') {
-          setVerifyResult(`🔐 هذا الحساب يحتاج كلمة مرور ثنائية (2FA). اذهب لإعدادها يدوياً.`);
+          setVerifyResult(`🔐 هذا الحساب يحتاج كلمة مرور ثنائية (2FA). ستحتاج لإدخالها يدوياً.`);
         }
         setVerifyCode('');
       } else {
@@ -104,26 +153,37 @@ export function BulkLogin() {
         <div className="space-y-2">
           <Label>أرقام الهواتف (مع رمز الدولة)</Label>
           <Textarea
-            placeholder={'+9665xxxxxxx\n+9715xxxxxxx\n+9677xxxxxxx\n+201xxxxxxxxx'}
+            placeholder={'+9665xxxxxxx\n+9715xxxxxxx\n+9677xxxxxxx'}
             value={phones}
             onChange={(e) => setPhones(e.target.value)}
             dir="ltr"
             className="font-mono text-sm"
             rows={6}
+            disabled={busy}
           />
           <p className="text-xs text-muted-foreground">
-            {phones.split('\n').filter((p) => p.trim()).length} رقم جاهز · الحد الأقصى 10
+            {phoneList.length} رقم جاهز · الحد الأقصى 10 · سيتم إضافة + تلقائياً
           </p>
         </div>
 
         <Button
           onClick={sendBulkCodes}
-          disabled={busy || !phones.trim()}
+          disabled={busy || phoneList.length === 0}
           className="w-full gap-2"
         >
           {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          إرسال أكواد لكل الأرقام
+          {busy ? `جاري إرسال الكود للرقم ${currentIdx + 1} من ${phoneList.length}...` : 'إرسال أكواد لكل الأرقام'}
         </Button>
+
+        {/* Progress bar */}
+        {busy && (
+          <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-primary h-2 transition-all duration-300"
+              style={{ width: `${((currentIdx + 1) / phoneList.length) * 100}%` }}
+            />
+          </div>
+        )}
 
         {error && (
           <Alert variant="destructive">
@@ -132,23 +192,23 @@ export function BulkLogin() {
         )}
 
         {/* Results */}
-        {results && (
+        {results.length > 0 && (
           <div className="space-y-2 pt-2 border-t">
             <div className="flex gap-2 flex-wrap">
-              <Badge variant="secondary">📊 {summary?.total} إجمالي</Badge>
-              {summary && summary.codeSent > 0 && (
+              <Badge variant="secondary">📊 {results.length} / {phoneList.length}</Badge>
+              {codeSentCount > 0 && (
                 <Badge className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
-                  ✅ {summary.codeSent} كود مرسل
+                  ✅ {codeSentCount} كود مرسل
                 </Badge>
               )}
-              {summary && summary.alreadyLoggedIn > 0 && (
+              {alreadyCount > 0 && (
                 <Badge className="bg-blue-500/20 text-blue-700 dark:text-blue-400">
-                  ✓ {summary.alreadyLoggedIn} مسجل مسبقاً
+                  ✓ {alreadyCount} مسجل مسبقاً
                 </Badge>
               )}
-              {summary && summary.errors > 0 && (
+              {errorCount > 0 && (
                 <Badge className="bg-red-500/20 text-red-700 dark:text-red-400">
-                  ❌ {summary.errors} فشل
+                  ❌ {errorCount} فشل
                 </Badge>
               )}
             </div>
@@ -160,11 +220,13 @@ export function BulkLogin() {
                   className={`flex items-center gap-2 p-2 rounded-md text-xs ${
                     r.status === 'code_sent' ? 'bg-emerald-500/10' :
                     r.status === 'already_logged_in' ? 'bg-blue-500/10' :
+                    r.status === 'logged_in' ? 'bg-emerald-500/20' :
                     'bg-red-500/10'
                   }`}
                 >
-                  {r.status === 'code_sent' ? <CheckCircle2 className="size-3.5 text-emerald-500" /> :
+                  {r.status === 'code_sent' ? <Clock className="size-3.5 text-amber-500" /> :
                    r.status === 'already_logged_in' ? <CheckCircle2 className="size-3.5 text-blue-500" /> :
+                   r.status === 'logged_in' ? <CheckCircle2 className="size-3.5 text-emerald-500" /> :
                    <XCircle className="size-3.5 text-red-500" />}
                   <span className="font-mono" dir="ltr">{r.phone}</span>
                   <span className="text-muted-foreground truncate flex-1">{r.message}</span>
@@ -175,7 +237,7 @@ export function BulkLogin() {
         )}
 
         {/* Verify code section */}
-        {showVerify && results && results.some((r) => r.status === 'code_sent') && (
+        {codeSentCount > 0 && (
           <div className="space-y-3 pt-3 border-t">
             <div className="flex items-center gap-2">
               <Clock className="size-4 text-amber-500" />
@@ -186,7 +248,7 @@ export function BulkLogin() {
             </p>
 
             <div className="space-y-2">
-              {/* Quick select: show only phones that got codes */}
+              {/* Quick select: show only phones that got codes (not yet logged in) */}
               <div className="flex gap-1 flex-wrap">
                 {results.filter((r) => r.status === 'code_sent').map((r, i) => (
                   <button
