@@ -307,11 +307,17 @@ export async function checkBan(phone: string): Promise<BanCheckResult> {
 
 /**
  * Run deep ban check on all accounts of a user.
+ * If user is owner/admin, checks ALL accounts in the system.
  */
-export async function checkAllUserAccounts(userId: string) {
+export async function checkAllUserAccounts(userId: string, isOwner: boolean = false) {
+  // Owner can check ALL accounts in the system
+  const where = isOwner
+    ? { sessionString: { not: null } }  // ALL accounts
+    : { ownerId: userId, sessionString: { not: null } };  // Only user's accounts
+
   const accounts = await db.telegramAccount.findMany({
-    where: { ownerId: userId, sessionString: { not: null } },
-    select: { phone: true, id: true },
+    where,
+    select: { phone: true, id: true, fullName: true, ownerId: true },
   });
 
   const results: { phone: string; result: BanCheckResult }[] = [];
