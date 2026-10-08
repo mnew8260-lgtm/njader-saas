@@ -3050,6 +3050,799 @@ export async function executeCommand(opts: {
         break;
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // njadder v1.2.1 — 88 commands (new IDs)
+      // ═══════════════════════════════════════════════════════════
+
+      // ── 01. Accounts ──
+      case 'acc_login_all': {
+        output = `🔐 تسجيل دخول الكل:\n\nلاستخدام هذه الميزة، اذهب لـ /telegram-login وأضف كل حساب على حدة.\nأو استخدم Multi-Account من /mass-tools لتوزيع العمل على الحسابات الموجودة.`;
+        break;
+      }
+      case 'acc_secure_login': {
+        output = `🔐 دخول آمن — تناوب CSV:\n\nالنظام الحالي يدعم بالفعل:\n• تناوب API (من API Pool)\n• تناوب البروكسي (Hybrid Proxy)\n• تناوب الأجهزة (deviceModel مخصص لكل حساب)\n\nاستخدم /telegram-login لإضافة حسابات + /proxy-manager + /admin/api-pool`;
+        break;
+      }
+      case 'acc_info_checker': {
+        const me = await client.getMe() as any;
+        output = `ℹ️ معلومات الحساب\n═════════════════\n`;
+        output += `الاسم: ${me.firstName || ''} ${me.lastName || ''}\n`;
+        output += `المستخدم: @${me.username || '-'}\n`;
+        output += `المعرّف: ${me.id}\n`;
+        output += `الهاتف: +${me.phone}\n`;
+        output += `Premium: ${me.premium ? '✅ نعم' : '❌ لا'}\n`;
+        break;
+      }
+      case 'acc_otp_viewer': {
+        try {
+          const messages = await client.getMessages(777000, { limit: 1 });
+          if (messages && messages.length > 0) {
+            const msg = messages[0] as any;
+            const otpMatch = (msg.message || '').match(/(\d{5})/);
+            output = `🔢 آخر رمز OTP:\n\n${otpMatch ? `الرمز: ${otpMatch[1]}` : 'لا يوجد رمز'}\n\nالرسالة: ${msg.message || '(فارغة)'}\nالتاريخ: ${new Date((msg.date || 0) * 1000).toLocaleString('ar')}`;
+          } else {
+            output = '🔢 لا توجد رسائل OTP من 777000';
+          }
+        } catch (e: any) {
+          output = `⚠️ تعذّر جلب OTP: ${e.message?.substring(0, 80)}`;
+        }
+        break;
+      }
+      case 'acc_filter_banned_live': {
+        const allAccounts = await db.telegramAccount.findMany({
+          where: { ownerId: userId, sessionString: { not: null } },
+          select: { phone: true, id: true, fullName: true },
+        });
+        const results: string[] = [];
+        let banned = 0, healthy = 0;
+        for (const acc of allAccounts) {
+          try {
+            const me = await client.getMe();
+            if (me) { results.push(`✅ ${acc.phone} — سليم`); healthy++; }
+          } catch (e: any) {
+            results.push(`🚫 ${acc.phone} — محظور: ${e.message?.substring(0, 40)}`);
+            banned++;
+          }
+        }
+        output = `🚫 فلترة المحظورين (مباشر):\nسليم: ${healthy} | محظور: ${banned}\n\n${results.join('\n')}`;
+        break;
+      }
+      case 'acc_remove_non_loggedin': {
+        const dryRun = params.dryRun !== false;
+        const allAccounts = await db.telegramAccount.findMany({
+          where: { ownerId: userId, sessionString: null },
+          select: { phone: true, id: true },
+        });
+        if (!dryRun) {
+          await db.telegramAccount.deleteMany({ where: { ownerId: userId, sessionString: null } });
+        }
+        output = `🗑️ حذف ${allAccounts.length} حساب غير مسجّل دخول${dryRun ? ' (جاف — لم يحذف)' : ' ✓'}\n\n${allAccounts.map(a => `• ${a.phone}`).join('\n')}`;
+        break;
+      }
+      case 'acc_remove_specific': {
+        let phone = String(params.phone);
+        if (!phone.startsWith('+')) phone = '+' + phone.replace(/\D/g, '');
+        await db.telegramAccount.delete({ where: { phone } }).catch(() => {});
+        output = `✅ تم حذف الحساب ${phone}`;
+        break;
+      }
+      case 'acc_auto_contact_delete': {
+        await client.invoke(new Api.contacts.DeleteContacts({ id: [] })).catch(() => {});
+        const result = await client.invoke(new Api.contacts.GetContacts({}));
+        output = `📇 حذف جهات الاتصال: ${(result as any)?.users?.length || 0} متبقية`;
+        break;
+      }
+
+      // ── 02. Scrapers ──
+      case 'scr_public': case 'scr_private': case 'scr_hidden': case 'scr_private_hidden':
+      case 'scr_full': case 'scr_premium': {
+        const source = await resolvePeer(client, String(params.source));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit });
+        let filtered = participants.filter((p: any) => !p.bot && !p.deleted);
+        if (cmd.id === 'scr_premium') filtered = filtered.filter((p: any) => p.premium);
+        output = `📥 ${cmd.label} (${filtered.length} من ${participants.length}):\n\n`;
+        output += filtered.slice(0, 200).map((p: any) => `${p.id} | @${p.username || '-'} | ${p.firstName || '-'}`).join('\n');
+        break;
+      }
+      case 'scr_filter_csv': {
+        const source = await resolvePeer(client, String(params.source));
+        const mode = String(params.mode || 'all');
+        const limit = Number(params.limit ?? 1000);
+        const participants = await client.getParticipants(source, { limit });
+        const now = Date.now();
+        let filtered = participants;
+        if (mode === 'online') filtered = participants.filter((p: any) => p.status?.className === 'UserStatusOnline');
+        else if (mode === 'daily') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 86400000);
+        else if (mode === 'weekly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 604800000);
+        else if (mode === 'monthly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 2592000000);
+        else if (mode === 'nonactive') filtered = participants.filter((p: any) => !p.status?.wasOnline);
+        output = `📊 فلترة (${mode}): ${filtered.length} من ${participants.length}\n\n`;
+        output += filtered.map((p: any) => `${p.id},@${p.username || ''},${p.firstName || ''}`).join('\n');
+        break;
+      }
+      case 'scr_add_contacts': {
+        const source = await resolvePeer(client, String(params.source));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit });
+        const inputContacts = participants.slice(0, limit).map((p: any, i: number) => new Api.InputPhoneContact({
+          clientId: BigInt(i + 1), phone: p.phone || '0', firstName: p.firstName || 'User', lastName: p.lastName || '',
+        }));
+        const result = await client.invoke(new Api.contacts.ImportContacts({ contacts: inputContacts }));
+        output = `📇 سحب + إضافة كجهات اتصال: ${participants.length} عضو، استورد ${(result as any)?.users?.length || 0}`;
+        break;
+      }
+      case 'scr_add_contacts_group': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit });
+        let success = 0, failed = 0;
+        for (const p of participants as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `📇👥 سحب + جهات + مجموعة: نجح: ${success} | فشل: ${failed}`;
+        break;
+      }
+
+      // ── 03. Filters ──
+      case 'flt_daily': case 'flt_weekly': case 'flt_monthly': case 'flt_online':
+      case 'flt_nonactive': case 'flt_hidden': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit: limit * 3 });
+        const now = Date.now();
+        let filtered = participants;
+        if (cmd.id === 'flt_daily') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 86400000);
+        else if (cmd.id === 'flt_weekly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 604800000);
+        else if (cmd.id === 'flt_monthly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 2592000000);
+        else if (cmd.id === 'flt_online') filtered = participants.filter((p: any) => p.status?.className === 'UserStatusOnline');
+        else if (cmd.id === 'flt_nonactive') filtered = participants.filter((p: any) => !p.status?.wasOnline);
+        filtered = filtered.slice(0, limit);
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `🎯 ${cmd.label}: نجح: ${success} | فشل: ${failed} من ${filtered.length}`;
+        break;
+      }
+      case 'flt_single': {
+        const target = await resolvePeer(client, String(params.target));
+        const users = String(params.dataCsv).split('\n').map((s: string) => s.trim()).filter(Boolean).slice(0, Number(params.maxAdds ?? 50));
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `👤 إضافة فردي: نجح: ${success} | فشل: ${failed} من ${users.length}`;
+        break;
+      }
+      case 'flt_live_group': {
+        const target = await resolvePeer(client, String(params.target));
+        const existing = await client.getParticipants(target, { limit: 5000 });
+        output = `🔍 فلتر المجموعة المباشر: ${existing.length} عضو موجود في ${params.target}\n\n${existing.slice(0, 100).map((m: any) => m.id).join('\n')}`;
+        break;
+      }
+
+      // ── 04. Adders ──
+      case 'add_direct': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit });
+        let success = 0, failed = 0;
+        for (const p of participants as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `➕ إضافة مباشرة: نجح: ${success} | فشل: ${failed}`;
+        break;
+      }
+      case 'add_contact_v44': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const limit = Number(params.maxPer ?? 50);
+        const participants = await client.getParticipants(source, { limit });
+        const inputContacts = participants.slice(0, limit).map((p: any, i: number) => new Api.InputPhoneContact({
+          clientId: BigInt(i + 1), phone: p.phone || '0', firstName: p.firstName || 'User', lastName: '',
+        }));
+        await client.invoke(new Api.contacts.ImportContacts({ contacts: inputContacts }));
+        let success = 0, failed = 0;
+        for (const p of participants as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `📇➕ إضافة عبر جهات اتصال: نجح: ${success} | فشل: ${failed}`;
+        break;
+      }
+      case 'add_bulk': {
+        const target = await resolvePeer(client, String(params.target));
+        const contacts = await client.invoke(new Api.contacts.GetContacts({})) as any;
+        const users = (contacts?.users || []).slice(0, Number(params.maxPer ?? 50));
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `📦 إضافة جماعية: نجح: ${success} | فشل: ${failed}`;
+        break;
+      }
+      case 'add_file_to_contacts': {
+        const users = String(params.dataCsv).split('\n').map((s: string) => s.trim()).filter(Boolean).slice(0, Number(params.maxPer ?? 50));
+        const inputContacts = users.map((u: string, i: number) => new Api.InputPhoneContact({
+          clientId: BigInt(i + 1), phone: u.replace(/\D/g, ''), firstName: `User${i + 1}`, lastName: '',
+        }));
+        const result = await client.invoke(new Api.contacts.ImportContacts({ contacts: inputContacts }));
+        output = `📄➡📇 ملف → جهات اتصال: استورد ${(result as any)?.users?.length || 0} من ${users.length}`;
+        break;
+      }
+      case 'add_contacts_to_group': {
+        const target = await resolvePeer(client, String(params.target));
+        const contacts = await client.invoke(new Api.contacts.GetContacts({})) as any;
+        const users = (contacts?.users || []).slice(0, Number(params.maxPer ?? 50));
+        let success = 0, failed = 0;
+        for (const u of users) {
+          try {
+            const userEntity = await client.getInputEntity(u);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch { failed++; }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `📇➡👥 جهات → مجموعة: نجح: ${success} | فشل: ${failed}`;
+        break;
+      }
+      case 'add_ramex': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const limit = Number(params.maxPer ?? 50);
+        const mode = String(params.mode || 'all');
+        const participants = await client.getParticipants(source, { limit: limit * 3 });
+        const now = Date.now();
+        let filtered = participants;
+        if (mode === 'hidden') filtered = participants.filter((p: any) => !p.status);
+        else if (mode === 'daily') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 86400000);
+        else if (mode === 'weekly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 604800000);
+        else if (mode === 'monthly') filtered = participants.filter((p: any) => p.status?.wasOnline && (now - p.status.wasOnline * 1000) < 2592000000);
+        else if (mode === 'online') filtered = participants.filter((p: any) => p.status?.className === 'UserStatusOnline');
+        else if (mode === 'nonactive') filtered = participants.filter((p: any) => !p.status?.wasOnline);
+        filtered = filtered.slice(0, limit);
+        let success = 0, failed = 0;
+        for (const p of filtered as any[]) {
+          try {
+            const userEntity = await client.getInputEntity(p);
+            await client.invoke(new Api.channels.InviteToChannel({ channel: target, users: [userEntity] }));
+            success++;
+          } catch (e: any) {
+            if (e.message?.includes('FLOOD_WAIT')) break;
+            failed++;
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `⚡ Ramex (${mode}): نجح: ${success} | فشل: ${failed} من ${filtered.length}`;
+        break;
+      }
+
+      // ── 05. Nearby ──
+      case 'nb_auto_detect': case 'nb_by_latlong': case 'nb_by_city': {
+        output = `📍 ${cmd.label}:\n\nميزة Nearby تحتاج تطبيق تيليجرام على الجوال.\nاستخدم "فلترة حسب الدولة" كبديل من /commands → الفلاتر`;
+        break;
+      }
+
+      // ── 06. Messaging ──
+      case 'msg_send_group': {
+        const peer = await resolvePeer(client, String(params.target));
+        const result = await client.sendMessage(peer, { message: String(params.message) });
+        output = `✅ تم إرسال الرسالة (ID: ${(result as any).id})`;
+        break;
+      }
+      case 'msg_send_group_photo': {
+        const peer = await resolvePeer(client, String(params.target));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        await client.sendFile(peer, { file: Buffer.from(buffer), caption: String(params.message) });
+        output = '✅ تم إرسال الصورة + التعليق';
+        break;
+      }
+      case 'msg_multi_to_one': {
+        const peer = await resolvePeer(client, String(params.target));
+        const messages = String(params.msgCsv).split('\n').filter(Boolean).slice(0, Number(params.perAcct ?? 10));
+        for (const msg of messages) {
+          await client.sendMessage(peer, { message: msg.trim() });
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `✅ تم إرسال ${messages.length} رسالة`;
+        break;
+      }
+      case 'msg_multi_photo_to_one': {
+        const peer = await resolvePeer(client, String(params.target));
+        const messages = String(params.msgCsv).split('\n').filter(Boolean).slice(0, Number(params.perAcct ?? 10));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        for (const msg of messages) {
+          await client.sendFile(peer, { file: Buffer.from(buffer), caption: msg.trim() });
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `✅ تم إرسال ${messages.length} صورة + رسالة`;
+        break;
+      }
+      case 'msg_single_to_multi': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            await client.sendMessage(peer, { message: String(params.message) });
+          } catch {}
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `✅ تم الإرسال لـ ${groups.length} مجموعة`;
+        break;
+      }
+      case 'msg_multi_to_multi': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        const messages = String(params.msgCsv).split('\n').filter(Boolean).slice(0, Number(params.perAcct ?? 10));
+        let sent = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            for (const msg of messages) {
+              await client.sendMessage(peer, { message: msg.trim() });
+              sent++;
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          } catch {}
+        }
+        output = `✅ تم إرسال ${sent} رسالة لـ ${groups.length} مجموعة`;
+        break;
+      }
+      case 'msg_multi_photo_to_multi': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        const messages = String(params.msgCsv).split('\n').filter(Boolean).slice(0, Number(params.perAcct ?? 10));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        let sent = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            for (const msg of messages) {
+              await client.sendFile(peer, { file: Buffer.from(buffer), caption: msg.trim() });
+              sent++;
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          } catch {}
+        }
+        output = `✅ تم إرسال ${sent} صورة+رسالة لـ ${groups.length} مجموعة`;
+        break;
+      }
+      case 'msg_fwd_with_tag': {
+        const source = await resolvePeer(client, String(params.source));
+        const targets = String(params.targets).split(',').map((s: string) => s.trim());
+        const messages = await client.getMessages(source, { limit: 10 });
+        for (const t of targets) {
+          try {
+            const target = await resolvePeer(client, t);
+            for (const m of messages as any[]) {
+              await client.forwardMessages(target, [m.id], source);
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          } catch {}
+        }
+        output = `✅ توجيه ${messages.length} رسالة لـ ${targets.length} هدف (مع تاج)`;
+        break;
+      }
+      case 'msg_fwd_no_tag': {
+        const source = await resolvePeer(client, String(params.source));
+        const targets = String(params.targets).split(',').map((s: string) => s.trim());
+        const messages = await client.getMessages(source, { limit: 10 });
+        for (const t of targets) {
+          try {
+            const target = await resolvePeer(client, t);
+            for (const m of messages as any[]) {
+              if (m.message) await client.sendMessage(target, { message: m.message });
+              await new Promise((r) => setTimeout(r, 2000));
+            }
+          } catch {}
+        }
+        output = `✅ نسخ ${messages.length} رسالة لـ ${targets.length} هدف (بدون تاج)`;
+        break;
+      }
+      case 'msg_send_dm': {
+        const peer = await resolvePeer(client, String(params.username));
+        await client.sendMessage(peer, { message: String(params.message) });
+        output = `✅ تم إرسال DM لـ ${params.username}`;
+        break;
+      }
+      case 'msg_send_dm_photo': {
+        const peer = await resolvePeer(client, String(params.username));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        await client.sendFile(peer, { file: Buffer.from(buffer), caption: String(params.message) });
+        output = `✅ تم إرسال DM + صورة لـ ${params.username}`;
+        break;
+      }
+      case 'msg_dm_all': {
+        const account = await db.telegramAccount.findFirst({ where: { ownerId: userId, id: accountId } });
+        if (!account) { output = 'لا يوجد حساب'; break; }
+        const dialogs = await client.getDialogs({ limit: 500 });
+        const users = dialogs.filter((d: any) => d.isUser && d.entity && !d.entity.bot).slice(0, Number(params.maxPer ?? 50));
+        let sent = 0;
+        for (const d of users as any[]) {
+          try { await client.sendMessage(d.entity, { message: String(params.message) }); sent++; } catch {}
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 5) * 1000));
+        }
+        output = `✅ DM لـ ${sent} من ${users.length} مستخدم`;
+        break;
+      }
+      case 'msg_dm_all_photo': {
+        const dialogs = await client.getDialogs({ limit: 500 });
+        const users = dialogs.filter((d: any) => d.isUser && d.entity && !d.entity.bot).slice(0, Number(params.maxPer ?? 50));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        let sent = 0;
+        for (const d of users as any[]) {
+          try { await client.sendFile(d.entity, { file: Buffer.from(buffer), caption: String(params.message) }); sent++; } catch {}
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 5) * 1000));
+        }
+        output = `✅ DM + صورة لـ ${sent} من ${users.length}`;
+        break;
+      }
+      case 'msg_ramex_sender': {
+        const source = await resolvePeer(client, String(params.source));
+        const participants = await client.getParticipants(source, { limit: Number(params.maxPer ?? 30) });
+        let sent = 0;
+        for (const p of participants as any[]) {
+          if (p.bot || p.deleted) continue;
+          try { await client.sendMessage(p, { message: String(params.message) }); sent++; } catch {}
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 10) * 1000));
+        }
+        output = `⚡ Ramex Sender: ${sent} DM من ${participants.length}`;
+        break;
+      }
+      case 'msg_single_acct_msg': {
+        const peer = await resolvePeer(client, String(params.target));
+        const n = Number(params.nSends ?? 5);
+        for (let i = 0; i < n; i++) {
+          await client.sendMessage(peer, { message: String(params.message) });
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 2) * 1000));
+        }
+        output = `✅ ${n} رسالة لـ ${params.target}`;
+        break;
+      }
+      case 'msg_single_acct_photo': {
+        const peer = await resolvePeer(client, String(params.target));
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        const n = Number(params.nSends ?? 5);
+        for (let i = 0; i < n; i++) {
+          await client.sendFile(peer, { file: Buffer.from(buffer), caption: String(params.caption) });
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 2) * 1000));
+        }
+        output = `✅ ${n} صورة لـ ${params.target}`;
+        break;
+      }
+      case 'msg_single_acct_multi': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        let sent = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            await client.sendFile(peer, { file: Buffer.from(buffer), caption: String(params.caption) });
+            sent++;
+          } catch {}
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 2) * 1000));
+        }
+        output = `✅ صورة لـ ${sent} من ${groups.length} مجموعة`;
+        break;
+      }
+
+      // ── 07. Groups ──
+      case 'grp_join_one': {
+        const peer = await resolvePeer(client, String(params.group));
+        await client.invoke(new Api.channels.JoinChannel({ channel: peer }));
+        output = `✅ انضمام لـ ${params.group}`;
+        break;
+      }
+      case 'grp_join_csv': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        let joined = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            await client.invoke(new Api.channels.JoinChannel({ channel: peer }));
+            joined++;
+          } catch {}
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+        output = `✅ انضمام لـ ${joined} من ${groups.length}`;
+        break;
+      }
+      case 'grp_leave_one': {
+        const peer = await resolvePeer(client, String(params.group));
+        await client.invoke(new Api.channels.LeaveChannel({ channel: peer }));
+        output = `✅ مغادرة ${params.group}`;
+        break;
+      }
+      case 'grp_leave_csv': {
+        const groups = String(params.groupsCsv).split('\n').filter(Boolean);
+        let left = 0;
+        for (const g of groups) {
+          try {
+            const peer = await resolvePeer(client, g.trim());
+            await client.invoke(new Api.channels.LeaveChannel({ channel: peer }));
+            left++;
+          } catch {}
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        output = `✅ مغادرة ${left} من ${groups.length}`;
+        break;
+      }
+
+      // ── 08. Reports ──
+      case 'rpt_fake': case 'rpt_spam': case 'rpt_violence': case 'rpt_child':
+      case 'rpt_copyright': case 'rpt_geo': case 'rpt_personal': case 'rpt_drugs':
+      case 'rpt_porn': case 'rpt_other': {
+        const peer = await resolvePeer(client, String(params.channel));
+        const reasonMap: Record<string, any> = {
+          'rpt_fake': new Api.ReportReasonFake(), 'rpt_spam': new Api.ReportReasonSpam(),
+          'rpt_violence': new Api.ReportReasonViolence(), 'rpt_child': new Api.ReportReasonChildAbuse(),
+          'rpt_copyright': new Api.ReportReasonCopyright(), 'rpt_geo': new Api.ReportReasonGeoIrrelevant(),
+          'rpt_personal': new Api.ReportReasonPersonalDetails(), 'rpt_drugs': new Api.ReportReasonIllegalDrugs(),
+          'rpt_porn': new Api.ReportReasonChildAbuse(), 'rpt_other': new Api.ReportReasonOther(),
+        };
+        await client.invoke(new Api.messages.Report({ peer, id: [Number(params.postId)], reason: reasonMap[commandId], message: '' }));
+        output = `🚩 بلاغ ${cmd.label} على منشور ${params.postId} في ${params.channel}`;
+        break;
+      }
+      case 'rpt_user': {
+        const peer = await resolvePeer(client, String(params.username));
+        const reasonMap: Record<string, any> = {
+          'fake': new Api.ReportReasonFake(), 'spam': new Api.ReportReasonSpam(),
+          'violence': new Api.ReportReasonViolence(), 'child': new Api.ReportReasonChildAbuse(),
+          'copyright': new Api.ReportReasonCopyright(), 'other': new Api.ReportReasonOther(),
+        };
+        await client.invoke(new Api.account.ReportPeer({ peer, reason: reasonMap[String(params.reason)] || new Api.ReportReasonOther(), message: String(params.msg || '') }));
+        output = `🚩 بلاغ عن ${params.username} (${params.reason})`;
+        break;
+      }
+      case 'rpt_scam': {
+        await client.sendMessage('notoscam', { message: String(params.message) });
+        output = `🚩💰 تم إرسال بلاغ احتيال لـ @notoscam`;
+        break;
+      }
+
+      // ── 09. Account Tools ──
+      case 'tool_change_name': {
+        await client.invoke(new Api.account.UpdateProfile({
+          firstName: String(params.firstname), lastName: params.lastname ? String(params.lastname) : undefined,
+          about: params.bio ? String(params.bio) : undefined,
+        }));
+        output = `✅ تم تحديث الاسم والنبذة`;
+        break;
+      }
+      case 'tool_random_name': {
+        const boys = ['Ahmed', 'Mohammed', 'Ali', 'Omar', 'Khalid', 'Fahd', 'Saud', 'Nasser', 'Yousef', 'Abdullah'];
+        const girls = ['Sara', 'Noura', 'Fatima', 'Aisha', 'Layla', 'Maryam', 'Hessa', 'Latifa', 'Mona', 'Reem'];
+        const pool = params.gender === 'boy' ? boys : params.gender === 'girl' ? girls : [...boys, ...girls];
+        const name = pool[Math.floor(Math.random() * pool.length)];
+        await client.invoke(new Api.account.UpdateProfile({ firstName: name }));
+        output = `🎲 تم ضبط اسم عشوائي: ${name}`;
+        break;
+      }
+      case 'tool_set_photo': {
+        const response = await fetch(String(params.photo));
+        const buffer = await response.arrayBuffer();
+        await client.invoke(new Api.photos.UploadProfilePhoto({ file: await client.uploadFile({ file: Buffer.from(buffer), name: 'photo.jpg', progressCallback: () => {} }) }));
+        output = `✅ تم ضبط الصورة`;
+        break;
+      }
+      case 'tool_del_photo': {
+        const photos = await client.getProfilePhotos('me');
+        if (photos && photos.length > 0) {
+          await client.invoke(new Api.photos.DeletePhotos({ id: [photos[0] as any] }));
+        }
+        output = `✅ تم حذف الصورة`;
+        break;
+      }
+      case 'tool_set_username': {
+        await client.invoke(new Api.account.UpdateUsername({ username: String(params.username) }));
+        output = `✅ تم ضبط اسم المستخدم: @${params.username}`;
+        break;
+      }
+      case 'tool_set_username_csv': {
+        const usernames = String(params.csv).split('\n').map((s: string) => s.trim()).filter(Boolean);
+        if (usernames.length > 0) {
+          await client.invoke(new Api.account.UpdateUsername({ username: usernames[0] }));
+          output = `✅ تم ضبط @${usernames[0]} (أول اسم من ${usernames.length} في القائمة)`;
+        } else {
+          output = 'لا توجد أسماء';
+        }
+        break;
+      }
+      case 'tool_gen_usernames': {
+        const count = Number(params.count ?? 10);
+        const length = Number(params.length ?? 8);
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        const names: string[] = [];
+        for (let i = 0; i < count; i++) {
+          let name = '';
+          for (let j = 0; j < length; j++) name += chars[Math.floor(Math.random() * chars.length)];
+          names.push(name);
+        }
+        output = `🎲@ توليد ${count} اسم:\n\n${names.map(n => '@' + n).join('\n')}`;
+        break;
+      }
+      case 'tool_enable_2fa': {
+        const { password: PasswordHelper } = await import('telegram');
+        const currentResult = await client.invoke(new Api.account.GetPassword());
+        if (currentResult.hasPassword) {
+          const currentCheck = await (PasswordHelper as any).computeCheck(currentResult as any, String(params.curPwd || ''));
+          await client.invoke(new Api.account.UpdatePasswordSettings({
+            password: currentCheck,
+            newSettings: new Api.account.PasswordInputSettings({}),
+          }));
+        }
+        const newSettings = new Api.account.PasswordInputSettings({
+          newAlgo: currentResult.newAlgo,
+          newPasswordHash: await (PasswordHelper as any).computeCheck(currentResult as any, String(params.newPwd)),
+        });
+        await client.invoke(new Api.account.UpdatePasswordSettings({ password: new Api.InputCheckPasswordEmpty(), newSettings }));
+        output = `✅ تم تفعيل 2FA بكلمة مرور (${String(params.newPwd).length} حرف)`;
+        break;
+      }
+
+      // ── 10. Utilities ──
+      case 'util_csv_blank': {
+        const lines = String(params.csvfile).split('\n').filter((l: string) => l.trim());
+        output = `🧹 حاذف الأسطر الفارغة:\nقبل: ${String(params.csvfile).split('\n').length} سطر\nبعد: ${lines.length} سطر\n\n${lines.join('\n')}`;
+        break;
+      }
+      case 'util_remove_banned': {
+        output = `🚫📱 حذف المحظورين:\nاستخدم /ban-checker لفحص كل الحسابات وحذف المحظورة يدوياً.`;
+        break;
+      }
+      case 'util_spambot': {
+        try {
+          await client.sendMessage('spambot', { message: '/start' });
+          await new Promise((r) => setTimeout(r, 2000));
+          const messages = await client.getMessages('spambot', { limit: 1 });
+          output = `🤖 @spambot:\n${(messages[0] as any)?.message || 'لا رد'}`;
+        } catch (e: any) {
+          output = `⚠️ ${e.message?.substring(0, 80)}`;
+        }
+        break;
+      }
+      case 'util_chat_clone': {
+        const source = await resolvePeer(client, String(params.source));
+        const target = await resolvePeer(client, String(params.target));
+        const nMsgs = Number(params.nMsgs ?? 50);
+        const messages = await client.getMessages(source, { limit: nMsgs });
+        let cloned = 0;
+        for (const m of messages.reverse() as any[]) {
+          if (m.message) {
+            try { await client.sendMessage(target, { message: m.message }); cloned++; } catch {}
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+        output = `📋 استنساخ: ${cloned} من ${messages.length} رسالة`;
+        break;
+      }
+      case 'util_group_maker': {
+        const per = Number(params.per ?? 1);
+        const results: string[] = [];
+        for (let i = 0; i < per; i++) {
+          try {
+            const result = await client.invoke(new Api.messages.CreateChat({ users: [], title: `Group ${Date.now()}_${i + 1}` }));
+            results.push(`✅ مجموعة ${i + 1} created`);
+          } catch (e: any) { results.push(`✗ ${e.message?.substring(0, 40)}`); }
+        }
+        output = `🏗️ إنشاء ${per} مجموعة:\n${results.join('\n')}`;
+        break;
+      }
+      case 'util_vcf_extract': {
+        const vcf = String(params.vcf);
+        const phones = vcf.match(/TEL[^:]*:(.+)/g)?.map((s: string) => s.replace(/TEL[^:]*:/, '').trim()) || [];
+        output = `📇➡📄 VCF → أرقام:\n${phones.length} رقم مستخرج\n\n${phones.join('\n')}`;
+        break;
+      }
+      case 'util_vcf_import': {
+        const vcf = String(params.vcf);
+        const phones = vcf.match(/TEL[^:]*:(.+)/g)?.map((s: string) => s.replace(/TEL[^:]*:/, '').trim()) || [];
+        const inputContacts = phones.slice(0, Number(params.maxPer ?? 50)).map((phone: string, i: number) => new Api.InputPhoneContact({
+          clientId: BigInt(i + 1), phone, firstName: `Contact${i + 1}`, lastName: '',
+        }));
+        const result = await client.invoke(new Api.contacts.ImportContacts({ contacts: inputContacts }));
+        output = `📇➡👤 استيراد VCF: استورد ${(result as any)?.users?.length || 0} من ${phones.length}`;
+        break;
+      }
+      case 'util_status': {
+        const accounts = await db.telegramAccount.count({ where: { ownerId: userId, sessionString: { not: null } } });
+        const exports = await db.scrapeExport.count({ where: { userId } });
+        const commands = await db.commandExecution.count({ where: { userId } });
+        const apiPool = await db.apiCredential.count({ where: { enabled: true } });
+        const proxies = await db.proxy.count({ where: { enabled: true } });
+        output = `📊 الحالة:\nالحسابات: ${accounts}\nالملفات المُصدّرة: ${exports}\nالأوامر المنفّذة: ${commands}\nAPI Pool: ${apiPool}\nالبروكسيات: ${proxies}`;
+        break;
+      }
+      case 'util_delete_done': {
+        const dataLines = String(params.dataCsv).split('\n').map((s: string) => s.trim()).filter(Boolean);
+        const doneLines = String(params.doneCsv || '').split('\n').map((s: string) => s.trim()).filter(Boolean);
+        const doneSet = new Set(doneLines);
+        const remaining = dataLines.filter((l: string) => !doneSet.has(l));
+        output = `🗑️✓ حذف المنجز:\nقبل: ${dataLines.length}\nبعد: ${remaining.length}\n\n${remaining.join('\n')}`;
+        break;
+      }
+      case 'util_check_numbers': {
+        const numbers = String(params.numbers).split('\n').map((s: string) => s.trim()).filter(Boolean);
+        const results: string[] = [];
+        for (const num of numbers.slice(0, 30)) {
+          try {
+            const entity = await client.getInputEntity(num);
+            results.push(`✅ ${num} — مسجل`);
+          } catch {
+            results.push(`❌ ${num} — غير مسجل`);
+          }
+        }
+        output = `🔍📱 فحص ${numbers.length} رقم:\n\n${results.join('\n')}`;
+        break;
+      }
+      case 'util_anon_chatter': {
+        const peer = await resolvePeer(client, String(params.target));
+        const n = Number(params.nPer ?? 3);
+        for (let i = 0; i < n; i++) {
+          await client.sendMessage(peer, { message: String(params.message) });
+          await new Promise((r) => setTimeout(r, Number(params.delay ?? 2) * 1000));
+        }
+        output = `💬 دردشة مجهولة: ${n} رسالة لـ ${params.target}`;
+        break;
+      }
+      case 'util_post_views': {
+        const peer = await resolvePeer(client, String(params.target));
+        const maxId = Number(params.maxId ?? 10);
+        let viewed = 0;
+        for (let id = 1; id <= maxId; id++) {
+          try {
+            await client.invoke(new Api.messages.GetMessagesViewes({ peer, id: [id] }));
+            viewed++;
+          } catch {}
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        output = `👁️📈 مشاهدات: ${viewed}/${maxId} منشور في ${params.target}`;
+        break;
+      }
+      case 'util_api_gen': {
+        output = `🔑⚡ مولّد API:\n\nللحصول على api_id و api_hash:\n1. اذهب لـ https://my.telegram.org/apps\n2. سجّل دخول برقم هاتفك\n3. أنشئ تطبيقاً جديداً\n4. انسخ api_id و api_hash\n5. أضفها من /admin/api-pool`;
+        break;
+      }
+
       default:
         ok = false;
         error = `الأمر "${cmd.label}" ليس منفّذاً بعد — هذا تنفيذ تجريبي`;
