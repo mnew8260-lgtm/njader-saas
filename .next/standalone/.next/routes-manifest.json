@@ -248,6 +248,12 @@
       "namedRegex": "^/api/exports/list(?:/)?$"
     },
     {
+      "page": "/api/telegram/bulk-send-code",
+      "regex": "^/api/telegram/bulk\\-send\\-code(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/bulk\\-send\\-code(?:/)?$"
+    },
+    {
       "page": "/api/telegram/logout",
       "regex": "^/api/telegram/logout(?:/)?$",
       "routeKeys": {},

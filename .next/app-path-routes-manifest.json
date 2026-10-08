@@ -44,6 +44,7 @@
   "/api/exports/[id]/route": "/api/exports/[id]",
   "/api/exports/list/route": "/api/exports/list",
   "/api/route": "/api",
+  "/api/telegram/bulk-send-code/route": "/api/telegram/bulk-send-code",
   "/api/telegram/logout/route": "/api/telegram/logout",
   "/api/telegram/send-code/route": "/api/telegram/send-code",
   "/api/telegram/status/route": "/api/telegram/status",

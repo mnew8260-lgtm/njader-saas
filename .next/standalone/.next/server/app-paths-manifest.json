@@ -44,6 +44,7 @@
   "/api/exports/[id]/route": "app/api/exports/[id]/route.js",
   "/api/exports/list/route": "app/api/exports/list/route.js",
   "/api/route": "app/api/route.js",
+  "/api/telegram/bulk-send-code/route": "app/api/telegram/bulk-send-code/route.js",
   "/api/telegram/logout/route": "app/api/telegram/logout/route.js",
   "/api/telegram/send-code/route": "app/api/telegram/send-code/route.js",
   "/api/telegram/status/route": "app/api/telegram/status/route.js",

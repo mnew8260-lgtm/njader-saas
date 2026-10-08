@@ -45,6 +45,9 @@
     "/api/commands/list": {},
     "/api/exports/[id]": {},
     "/api/exports/list": {},
+    "/api/telegram/bulk-send-code": {
+      "maxDuration": 60
+    },
     "/api/telegram/logout": {
       "maxDuration": 30
     },
