@@ -39,6 +39,10 @@ model TelegramAccount {
   proxyAssignments ProxyAssignment[]
   banChecks     BanCheck[]
   commandExecutions CommandExecution[]
+
+  // Custom proxy override (user can set their own)
+  customProxyId String?
+  customProxy   Proxy?  @relation("CustomProxyAccount", fields: [customProxyId], references: [id], onDelete: SetNull)
 }
 
 /// An API credential pair (api_id, api_hash) for rotation
@@ -293,6 +297,7 @@ model Proxy {
   updatedAt  DateTime @updatedAt
 
   assignments ProxyAssignment[]
+  customAccounts TelegramAccount[] @relation("CustomProxyAccount")
 
   @@index([enabled, isWorking])
   @@index([host, port])

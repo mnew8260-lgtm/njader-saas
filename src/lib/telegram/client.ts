@@ -73,13 +73,124 @@ async function saveSessionString(phone: string, sessionString: string) {
 }
 
 // ----------------------------------------------------------------------
+// Proxy auto-selection (HYBRID mode)
+// Strategy:
+//   1. If account has customProxyId → use that
+//   2. Else if account has ProxyAssignment → use that
+//   3. Else auto-assign: pick least-used working proxy from developer's pool
+//   4. If no proxies available → connect directly (no proxy)
+// ----------------------------------------------------------------------
+async function getProxyForAccount(phone: string): Promise<{
+  type: 'socks5' | 'http' | 'https';
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+} | null> {
+  // Load account with all proxy relations
+  const account = await db.telegramAccount.findUnique({
+    where: { phone },
+    select: {
+      id: true,
+      customProxyId: true,
+      customProxy: true,
+      proxyAssignments: { include: { proxy: true }, take: 1 },
+    },
+  });
+
+  if (!account) return null;
+
+  // 1) Custom user-set proxy (highest priority)
+  if (account.customProxy && account.customProxy.enabled && account.customProxy.isWorking) {
+    return {
+      type: account.customProxy.type as any,
+      host: account.customProxy.host,
+      port: account.customProxy.port,
+      username: account.customProxy.username || undefined,
+      password: account.customProxy.password || undefined,
+    };
+  }
+
+  // 2) Auto-assigned proxy from developer's pool
+  if (account.proxyAssignments[0]?.proxy) {
+    const p = account.proxyAssignments[0].proxy;
+    if (p.enabled && p.isWorking) {
+      return {
+        type: p.type as any,
+        host: p.host,
+        port: p.port,
+        username: p.username || undefined,
+        password: p.password || undefined,
+      };
+    }
+  }
+
+  // 3) Auto-assign: pick least-used working proxy
+  const proxy = await db.proxy.findFirst({
+    where: { enabled: true, isWorking: true },
+    orderBy: { usedCount: 'asc' },
+  });
+
+  if (!proxy) return null;
+
+  // Sticky assignment for consistency
+  await db.proxyAssignment.upsert({
+    where: { accountId: account.id },
+    create: { proxyId: proxy.id, accountId: account.id },
+    update: { proxyId: proxy.id },
+  }).catch(() => {});
+
+  await db.proxy.update({
+    where: { id: proxy.id },
+    data: { usedCount: { increment: 1 } },
+  }).catch(() => {});
+
+  return {
+    type: proxy.type as any,
+    host: proxy.host,
+    port: proxy.port,
+    username: proxy.username || undefined,
+    password: proxy.password || undefined,
+  };
+}
+
+/**
+ * Build GramJS-compatible proxy option
+ */
+function buildProxyOption(proxy: {
+  type: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+}): any {
+  // GramJS uses IP/port format for SOCKS5
+  if (proxy.type === 'socks5') {
+    return {
+      socksType: 5,
+      ip: proxy.host,
+      port: proxy.port,
+      ...(proxy.username ? { username: proxy.username, password: proxy.password || '' } : {}),
+    };
+  }
+  // For HTTP/HTTPS, GramJS uses an agent
+  return {
+    socksType: 5,
+    ip: proxy.host,
+    port: proxy.port,
+    ...(proxy.username ? { username: proxy.username, password: proxy.password || '' } : {}),
+  };
+}
+
+// ----------------------------------------------------------------------
 // Client factory — creates a fresh client each request (stateless!)
+// Auto-uses proxy (custom or auto-assigned) + API from pool
 // ----------------------------------------------------------------------
 export async function makeClient(
   phone: string,
   apiId?: number,
   apiHash?: string
-): Promise<{ client: TelegramClient; apiId: number; apiHash: string }> {
+): Promise<{ client: TelegramClient; apiId: number; apiHash: string; proxyUsed?: string }> {
   if (!apiId || !apiHash) {
     const api = await getApiFromPool();
     apiId = api.apiId;
@@ -89,18 +200,33 @@ export async function makeClient(
   const existingSession = await loadSessionString(phone);
   const stringSession = new StringSession(existingSession || '');
 
-  const client = new TelegramClient(stringSession, apiId, apiHash, {
+  // Get proxy (custom > auto-assigned > none)
+  const proxy = await getProxyForAccount(phone);
+
+  const clientOptions: any = {
     connectionRetries: 5,
-    useWSS: true,
+    useWSS: !proxy, // use WSS only if no proxy (proxy doesn't support WSS)
     deviceModel: 'njadder',
     systemVersion: '6.3',
     appVersion: 'njadder-saas/6.3',
     langCode: 'en',
     systemLangCode: 'en',
-  });
+  };
+
+  // Add proxy if available
+  if (proxy) {
+    clientOptions.proxy = buildProxyOption(proxy);
+  }
+
+  const client = new TelegramClient(stringSession, apiId, apiHash, clientOptions);
 
   await client.connect();
-  return { client, apiId, apiHash };
+  return {
+    client,
+    apiId,
+    apiHash,
+    proxyUsed: proxy ? `${proxy.type}://${proxy.host}:${proxy.port}` : undefined,
+  };
 }
 
 // ----------------------------------------------------------------------
