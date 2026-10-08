@@ -309,11 +309,102 @@ export async function checkBan(phone: string): Promise<BanCheckResult> {
  * Run deep ban check on all accounts of a user.
  * If user is owner/admin, checks ALL accounts in the system.
  */
+
+/**
+ * Quick ban check — only does getMe + sendMessage (fast, for batch checking)
+ * Key insight: sendMessage('me') is the most reliable ban detector.
+ * If you can't message yourself, you're definitely banned.
+ */
+export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
+  let client: TelegramClient;
+  try {
+    ({ client } = await makeClient(phone));
+  } catch (e: any) {
+    const msg = e.message || String(e);
+    if (msg.includes('AUTH_KEY_UNREGISTERED') || msg.includes('AUTH_KEY_INVALID')) {
+      return { ok: true, isBanned: true, banType: 'auth_failed', reason: '🔑 الجلسة منتهية' };
+    }
+    if (msg.includes('USER_DEACTIVATED')) {
+      return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 الحساب معطّل' };
+    }
+    return { ok: false, isBanned: false, reason: 'فشل الاتصال: ' + msg.substring(0, 50) };
+  }
+
+  try {
+    // CHECK 1: getMe — detects deactivated accounts
+    let me: any = null;
+    try {
+      me = await client.getMe();
+    } catch (e: any) {
+      const errStr = e.message || String(e);
+      if (errStr.includes('USER_DEACTIVATED')) {
+        await client.disconnect();
+        return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 معطّل نهائياً' };
+      }
+      if (errStr.includes('AUTH_KEY_UNREGISTERED') || errStr.includes('SESSION_REVOKED')) {
+        await client.disconnect();
+        return { ok: true, isBanned: true, banType: 'auth_failed', reason: '🔑 الجلسة منتهية' };
+      }
+    }
+
+    if (!me) {
+      await client.disconnect();
+      return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 تعذّر جلب معلومات الحساب' };
+    }
+
+    // CHECK 2: sendMessage to Saved Messages (THE KEY CHECK)
+    // If you can't message yourself, you're definitely banned/restricted
+    try {
+      const testResult = await client.sendMessage('me', {
+        message: 'njadder_check_' + Date.now(),
+        silent: true,
+      });
+      // Delete test message immediately
+      if (testResult && (testResult as any).id) {
+        try { await client.deleteMessages('me', [(testResult as any).id], { revoke: true }); } catch {}
+      }
+    } catch (e: any) {
+      const errStr = e.message || String(e);
+      await client.disconnect();
+
+      if (errStr.includes('PEER_FLOOD')) {
+        return { ok: true, isBanned: true, banType: 'flood_ban', reason: '🌊 حظر فيض — لا يستطيع الإرسال' };
+      }
+      if (errStr.includes('USER_BANNED_IN_CHANNEL') || errStr.includes('CHAT_WRITE_FORBIDDEN')) {
+        return { ok: true, isBanned: true, banType: 'write_banned', reason: '📝 محظور من الكتابة' };
+      }
+      if (errStr.includes('FLOOD_WAIT')) {
+        const match = errStr.match(/(\d+)/);
+        const sec = match ? parseInt(match[1], 10) : 60;
+        return { ok: true, isBanned: true, banType: 'limited', reason: '⏱️ FloodWait ' + sec + 's', limitedUntil: new Date(Date.now() + sec * 1000) };
+      }
+      if (errStr.includes('SPAMMER')) {
+        return { ok: true, isBanned: true, banType: 'spam_ban', reason: '🚫 مُصنّف كسبام' };
+      }
+      // Unknown error but can't write → likely banned
+      return { ok: true, isBanned: true, banType: 'write_banned', reason: '📝 لا يستطيع الكتابة: ' + errStr.substring(0, 50) };
+    }
+
+    await client.disconnect();
+
+    // Save healthy result
+    const accountId = (await db.telegramAccount.findUnique({ where: { phone } }))?.id;
+    if (accountId) {
+      await db.banCheck.create({ data: { accountId, isBanned: false } }).catch(() => {});
+    }
+
+    return { ok: true, isBanned: false };
+  } catch (e: any) {
+    try { await client.disconnect(); } catch {}
+    return { ok: false, isBanned: false, reason: e.message };
+  }
+}
+
+
 export async function checkAllUserAccounts(userId: string, isOwner: boolean = false) {
-  // Owner can check ALL accounts in the system
   const where = isOwner
-    ? { sessionString: { not: null } }  // ALL accounts
-    : { ownerId: userId, sessionString: { not: null } };  // Only user's accounts
+    ? { sessionString: { not: null } }
+    : { ownerId: userId, sessionString: { not: null } };
 
   const accounts = await db.telegramAccount.findMany({
     where,
@@ -322,10 +413,9 @@ export async function checkAllUserAccounts(userId: string, isOwner: boolean = fa
 
   const results: { phone: string; result: BanCheckResult }[] = [];
   for (const acc of accounts) {
-    const result = await checkBan(acc.phone);
+    const result = await quickCheckBan(acc.phone);
     results.push({ phone: acc.phone, result });
 
-    // Update account status based on result
     if (result.ok) {
       await db.telegramAccount.update({
         where: { id: acc.id },
