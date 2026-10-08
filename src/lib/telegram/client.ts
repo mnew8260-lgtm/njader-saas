@@ -299,12 +299,27 @@ export async function sendCode(phone: string): Promise<SendCodeResult> {
     const result = await client.sendCode({ apiId, apiHash }, phone);
     const phoneCodeHash = (result as { phoneCodeHash?: string }).phoneCodeHash || '';
 
-    // Persist short-lived state in KV (apiId/apiHash must match in step 2)
+    // Persist short-lived state in KV (for same-instance requests)
     await kvSet(`login:${phone}`, {
       phone_code_hash: phoneCodeHash,
       api_id: apiId,
       api_hash: apiHash,
     }, 300);
+
+    // ALSO persist in DB (for cross-instance requests on Vercel serverless)
+    await db.telegramAccount.upsert({
+      where: { phone },
+      create: {
+        phone,
+        apiId: String(apiId),
+        apiHash: String(apiHash),
+        tempCodeHash: phoneCodeHash,
+        status: 'idle',
+      },
+      update: {
+        tempCodeHash: phoneCodeHash,
+      },
+    }).catch(() => {});
 
     // Persist the partial session string (GramJS may have started a new auth)
     const newSession = (client.session as unknown as { save?: () => string }).save?.();
@@ -361,17 +376,43 @@ export interface VerifyCodeResult {
 export async function verifyCode(phone: string, code: string, phoneCodeHash?: string): Promise<VerifyCodeResult> {
   if (!phone.startsWith('+')) phone = '+' + phone.replace(/\D/g, '');
 
+  // Try KV first (fast, same-instance)
   const state = await kvGet<{ phone_code_hash?: string; api_id?: number; api_hash?: string }>(`login:${phone}`);
-  const hash = phoneCodeHash || state?.phone_code_hash;
-  const apiId = state?.api_id;
-  const apiHash = state?.api_hash;
+  let hash = phoneCodeHash || state?.phone_code_hash;
+  let apiId = state?.api_id;
+  let apiHash = state?.api_hash;
+
+  // Fallback: read from DB (cross-instance on Vercel serverless)
+  if (!hash) {
+    const account = await db.telegramAccount.findUnique({
+      where: { phone },
+      select: { tempCodeHash: true },
+    });
+    if (account?.tempCodeHash) {
+      hash = account.tempCodeHash;
+    }
+  }
+
+  // Also try to get api_id/api_hash from DB if not in KV
+  if (!apiId || !apiHash) {
+    const account = await db.telegramAccount.findUnique({
+      where: { phone },
+      select: { tempCodeHash: true },
+    });
+    // Get any working API credential from pool
+    const api = await db.apiCredential.findFirst({ where: { enabled: true } });
+    if (api) {
+      apiId = Number(api.apiId);
+      apiHash = api.apiHash;
+    }
+  }
 
   if (!hash) {
     return {
       ok: false,
       status: 'error',
       phone,
-      error: 'NO_PHONE_CODE_HASH: must call send_code first',
+      error: 'NO_PHONE_CODE_HASH: يجب إرسال كود جديد. انقر "إعادة إرسال الكود"',
     };
   }
 

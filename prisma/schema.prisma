@@ -24,6 +24,7 @@ model TelegramAccount {
   apiHash       String
   sessionString String?
   sessionName   String?
+  tempCodeHash  String?   // ← NEW: stored phone_code_hash for verify step (cross-instance)
   status        String   @default("idle")
   fullName      String?
   username      String?
