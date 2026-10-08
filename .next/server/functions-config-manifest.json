@@ -40,6 +40,8 @@
     },
     "/api/commands/history": {},
     "/api/commands/list": {},
+    "/api/exports/[id]": {},
+    "/api/exports/list": {},
     "/api/telegram/logout": {
       "maxDuration": 30
     },

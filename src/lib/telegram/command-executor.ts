@@ -14,7 +14,91 @@ export interface ExecResult {
   output: string;
   duration?: number;
   error?: string;
+  exportId?: string;  // ID of saved scrape export (if applicable)
 }
+
+// ----------------------------------------------------------------------
+// Save scrape result as exportable file
+// ----------------------------------------------------------------------
+async function saveScrapeExport(opts: {
+  userId: string;
+  accountId?: string;
+  commandId: string;
+  commandName: string;
+  output: string;
+  sourcePeer?: string;
+  format?: 'txt' | 'csv' | 'json';
+}): Promise<string | undefined> {
+  try {
+    // Parse user mentions from output to count + format
+    const userLines = opts.output
+      .split('\n')
+      .filter((l) => l.startsWith('•') || /^\d/.test(l.trim()))
+      .map((l) => l.replace(/^[•\s]+/, '').trim());
+
+    if (userLines.length === 0) return undefined;
+
+    const format = opts.format || 'txt';
+    let content = '';
+    let totalCount = userLines.length;
+
+    if (format === 'json') {
+      const users = userLines.map((line, i) => {
+        const m = line.match(/(?:@(\w+))?.*?(?:ID:?\s*(\d+))?/i);
+        return {
+          index: i + 1,
+          username: m?.[1] ? '@' + m[1] : null,
+          id: m?.[2] || null,
+          raw: line,
+        };
+      });
+      content = JSON.stringify(users, null, 2);
+    } else if (format === 'csv') {
+      content = 'index,username,id,name,phone\n';
+      userLines.forEach((line, i) => {
+        const usernameMatch = line.match(/@(\w+)/);
+        const idMatch = line.match(/(?:ID:?\s*)?(\d{6,})/);
+        const phoneMatch = line.match(/\+(\d+)/);
+        // Try to extract name (first part before @ or numbers)
+        const name = line.split('@')[0].split('|')[0].trim().substring(0, 50);
+        content += `${i + 1},${usernameMatch ? '@' + usernameMatch[1] : ''},${idMatch?.[1] || ''},"${name}",${phoneMatch ? '+' + phoneMatch[1] : ''}\n`;
+      });
+    } else {
+      // txt - just the cleaned lines
+      content = userLines.join('\n');
+    }
+
+    const exportRec = await db.scrapeExport.create({
+      data: {
+        userId: opts.userId,
+        accountId: opts.accountId || null,
+        commandId: opts.commandId,
+        commandName: opts.commandName,
+        format,
+        sourcePeer: opts.sourcePeer || null,
+        totalCount,
+        content,
+      },
+    });
+
+    return exportRec.id;
+  } catch {
+    return undefined;
+  }
+}
+
+// Detect if a command is a "scraping" command that should save export
+const SCRAPING_COMMANDS = new Set([
+  'scrape_group_members', 'scrape_online_members', 'scrape_admins', 'scrape_bots',
+  'scrape_recent_users', 'scrape_group_info', 'check_phone_in_group', 'export_members_csv',
+  'scrape_private_group', 'scrape_from_messages', 'scrape_deep_members',
+  'scrape_invite_link_members', 'scrape_message_reactions', 'scrape_message_readers',
+  'scrape_dialogs_users',
+  'filter_by_country', 'filter_by_last_seen', 'filter_by_premium', 'filter_by_username',
+  'filter_by_phone', 'filter_by_status', 'filter_by_activity', 'filter_by_language',
+  'filter_mutual_contacts', 'filter_combine',
+  'get_dialogs', 'get_contacts', 'get_blocked_users',
+]);
 
 /**
  * Resolve a peer identifier (username, phone, ID) to an Api.InputPeer.
@@ -2560,5 +2644,24 @@ export async function executeCommand(opts: {
     },
   }).catch(() => {});
 
-  return { ok, output, duration, error };
+  // If scraping/filter command succeeded, save the result as downloadable file
+  let exportId: string | undefined;
+  if (ok && SCRAPING_COMMANDS.has(commandId)) {
+    exportId = await saveScrapeExport({
+      userId,
+      accountId,
+      commandId,
+      commandName: cmd.label,
+      output,
+      sourcePeer: (params.groupPeer as string) || (params.sourcePeer as string) || (params.channelPeer as string) || undefined,
+      format: commandId === 'export_members_csv' ? 'csv' : 'txt',
+    });
+
+    // If saved, append note to output
+    if (exportId) {
+      output += `\n\n─────────────────────────────────────\n📁 تم حفظ النتائج في ملف قابل للتنزيل\n   → اذهب لـ /exports لتنزيل الملف\n   → معرف الملف: ${exportId.substring(0, 12)}...`;
+    }
+  }
+
+  return { ok, output, duration, error, exportId };
 }

@@ -355,3 +355,23 @@ model BanCheck {
   @@index([accountId])
   @@index([checkedAt])
 }
+
+// ============================================================================
+// Scrape Exports — ملفات إخراج السحب
+// ============================================================================
+
+model ScrapeExport {
+  id         String   @id @default(cuid())
+  userId     String
+  accountId  String?
+  commandId  String
+  commandName String
+  format     String   @default("txt")  // txt | csv | json
+  sourcePeer String?
+  totalCount Int      @default(0)
+  content    String   @db.Text  // the actual file content
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}

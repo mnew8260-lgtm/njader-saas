@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 import {
   Phone, Users, KeyRound, Plus, ArrowLeft,
   Terminal, ShieldCheck, Globe, Activity,
-  CheckCircle2, Calendar, Sparkles, Users2, Lock, Filter,
+  CheckCircle2, Calendar, Sparkles, Users2, Lock, Filter, FileText,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,10 +27,11 @@ export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) return null;
 
-  const [accountsCount, apiPoolCount, commandsCount, lastAccount] = await Promise.all([
+  const [accountsCount, apiPoolCount, commandsCount, exportsCount, lastAccount] = await Promise.all([
     db.telegramAccount.count({ where: { ownerId: user.id } }),
     db.apiCredential.count({ where: { enabled: true } }),
     db.commandExecution.count({ where: { userId: user.id } }),
+    db.scrapeExport.count({ where: { userId: user.id } }),
     db.telegramAccount.findFirst({
       where: { ownerId: user.id },
       orderBy: { createdAt: 'desc' },
@@ -82,6 +83,14 @@ export default async function DashboardPage() {
       href: '/secure-login',
       color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
       stat: 'حماية الحساب',
+    },
+    {
+      title: 'ملفات السحب',
+      desc: 'تنزيل نتائج السحب بصيغة TXT/CSV/JSON',
+      icon: <FileText className="size-5" />,
+      href: '/exports',
+      color: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+      stat: `${exportsCount} ملف`,
     },
     {
       title: 'فاحص الحظر',

@@ -68,6 +68,14 @@
         "nxtPid": "nxtPid"
       },
       "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)/revoke(?:/)?$"
+    },
+    {
+      "page": "/api/exports/[id]",
+      "regex": "^/api/exports/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/exports/(?<nxtPid>[^/]+?)(?:/)?$"
     }
   ],
   "staticRoutes": [
@@ -228,6 +236,12 @@
       "namedRegex": "^/api/commands/list(?:/)?$"
     },
     {
+      "page": "/api/exports/list",
+      "regex": "^/api/exports/list(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/exports/list(?:/)?$"
+    },
+    {
       "page": "/api/telegram/logout",
       "regex": "^/api/telegram/logout(?:/)?$",
       "routeKeys": {},
@@ -274,6 +288,12 @@
       "regex": "^/dashboard(?:/)?$",
       "routeKeys": {},
       "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/exports",
+      "regex": "^/exports(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/exports(?:/)?$"
     },
     {
       "page": "/login",

@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState } from 'react';
 import {
   LayoutDashboard, Phone, Users, KeyRound, LogOut, Shield,
-  Terminal, ShieldCheck, Globe, Users2, Filter, Lock, Menu, X,
+  Terminal, ShieldCheck, Globe, Users2, Filter, Lock, Menu, X, FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { AuthUser } from '@/lib/auth';
@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { href: '/accounts',        label: 'حساباتي',      icon: <Users className="size-4" /> },
   { href: '/mass-tools',      label: 'السحب والإضافة', icon: <Users2 className="size-4" /> },
   { href: '/commands',        label: 'مدير الأوامر',  icon: <Terminal className="size-4" /> },
+  { href: '/exports',         label: 'ملفات السحب',    icon: <FileText className="size-4" /> },
   { href: '/secure-login',    label: 'التسجيل الآمن',  icon: <Lock className="size-4" /> },
   { href: '/ban-checker',     label: 'فاحص الحظر',   icon: <ShieldCheck className="size-4" /> },
   { href: '/admin/users',    label: 'الاشتراكات',    icon: <Shield className="size-4" />, adminOnly: true },
