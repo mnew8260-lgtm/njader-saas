@@ -37,6 +37,7 @@
   "/api/auth/me/route": "/api/auth/me",
   "/api/auth/refresh/route": "/api/auth/refresh",
   "/api/auth/signup/route": "/api/auth/signup",
+  "/api/commands/execute-multi/route": "/api/commands/execute-multi",
   "/api/commands/execute/route": "/api/commands/execute",
   "/api/commands/history/route": "/api/commands/history",
   "/api/commands/list/route": "/api/commands/list",

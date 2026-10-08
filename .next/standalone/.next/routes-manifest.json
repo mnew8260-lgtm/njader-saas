@@ -224,6 +224,12 @@
       "namedRegex": "^/api/commands/execute(?:/)?$"
     },
     {
+      "page": "/api/commands/execute-multi",
+      "regex": "^/api/commands/execute\\-multi(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/commands/execute\\-multi(?:/)?$"
+    },
+    {
       "page": "/api/commands/history",
       "regex": "^/api/commands/history(?:/)?$",
       "routeKeys": {},

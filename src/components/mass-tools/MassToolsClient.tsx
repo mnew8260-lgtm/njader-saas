@@ -17,6 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { MultiAccountSelector } from '@/components/accounts/MultiAccountSelector';
 
 interface Account {
   id: string;
@@ -36,6 +37,8 @@ interface JobResult {
 
 export function MassToolsClient({ accounts }: { accounts: Account[] }) {
   const [selectedAccount, setSelectedAccount] = useState(accounts[0]?.id || '');
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(accounts[0]?.id ? [accounts[0].id] : []);
+  const [multiMode, setMultiMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<JobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,21 +74,51 @@ export function MassToolsClient({ accounts }: { accounts: Account[] }) {
     setOutput('');
 
     try {
-      const res = await fetch('/api/commands/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: selectedAccount,
-          commandId,
-          params,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setOutput(data.output || '(لا يوجد مخرجات)');
+      // Multi-account mode: distribute work across selected accounts
+      if (multiMode && selectedAccountIds.length > 1) {
+        const res = await fetch('/api/commands/execute-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountIds: selectedAccountIds,
+            commandId,
+            params,
+            mode: 'parallel',
+          }),
+        });
+        const data = await res.json();
+        if (data.ok !== false && data.mergedOutput) {
+          setOutput(data.mergedOutput);
+          if (data.totalCount > 0) {
+            setResult({
+              total: data.totalAccounts,
+              success: data.activeAccounts,
+              failed: data.failedAccounts,
+              details: [],
+            });
+          }
+        } else {
+          setError(data.error || data.mergedOutput || 'فشل التنفيذ');
+          if (data.mergedOutput) setOutput(data.mergedOutput);
+        }
       } else {
-        setError(data.error || data.message || 'فشل التنفيذ');
-        if (data.output) setOutput(data.output);
+        // Single account mode (original)
+        const res = await fetch('/api/commands/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: multiMode ? selectedAccountIds[0] : selectedAccount,
+            commandId,
+            params,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setOutput(data.output || '(لا يوجد مخرجات)');
+        } else {
+          setError(data.error || data.message || 'فشل التنفيذ');
+          if (data.output) setOutput(data.output);
+        }
       }
     } catch (e: any) {
       setError(e.message);
@@ -96,22 +129,49 @@ export function MassToolsClient({ accounts }: { accounts: Account[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Account selector */}
-      <Card>
-        <CardContent className="pt-6">
-          <Label className="text-sm mb-2 block">اختر الحساب المستخدم للتنفيذ</Label>
-          <Select value={selectedAccount} onValueChange={setSelectedAccount}>
-            <SelectTrigger><SelectValue placeholder="اختر حساباً..." /></SelectTrigger>
-            <SelectContent>
-              {accounts.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  {a.fullName || a.username || a.phone} · {a.phone}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
+      {/* Multi-Account toggle + selector */}
+      <div className="flex items-center gap-2 p-2">
+        <button
+          onClick={() => setMultiMode(!multiMode)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
+            multiMode
+              ? 'bg-purple-500/20 text-purple-700 dark:text-purple-400 border border-purple-500/30'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          <Users className="size-3.5" />
+          {multiMode ? '✓ Multi-Account مُفعّل' : 'تفعيل Multi-Account'}
+        </button>
+        {multiMode && selectedAccountIds.length > 1 && (
+          <Badge className="bg-purple-500/20 text-purple-700 dark:text-purple-400 gap-1">
+            ⚡ توزيع على {selectedAccountIds.length} حسابات
+          </Badge>
+        )}
+      </div>
+
+      {multiMode ? (
+        <MultiAccountSelector
+          accounts={accounts}
+          selectedIds={selectedAccountIds}
+          onChange={setSelectedAccountIds}
+        />
+      ) : (
+        <Card>
+          <CardContent className="pt-6">
+            <Label className="text-sm mb-2 block">اختر الحساب المستخدم للتنفيذ</Label>
+            <Select value={selectedAccount} onValueChange={setSelectedAccount}>
+              <SelectTrigger><SelectValue placeholder="اختر حساباً..." /></SelectTrigger>
+              <SelectContent>
+                {accounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.fullName || a.username || a.phone} · {a.phone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs defaultValue="scrape" className="w-full">
         <TabsList className="grid grid-cols-4 lg:grid-cols-7 w-full">

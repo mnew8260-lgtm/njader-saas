@@ -37,6 +37,7 @@
   "/api/auth/me/route": "app/api/auth/me/route.js",
   "/api/auth/refresh/route": "app/api/auth/refresh/route.js",
   "/api/auth/signup/route": "app/api/auth/signup/route.js",
+  "/api/commands/execute-multi/route": "app/api/commands/execute-multi/route.js",
   "/api/commands/execute/route": "app/api/commands/execute/route.js",
   "/api/commands/history/route": "app/api/commands/history/route.js",
   "/api/commands/list/route": "app/api/commands/list/route.js",
