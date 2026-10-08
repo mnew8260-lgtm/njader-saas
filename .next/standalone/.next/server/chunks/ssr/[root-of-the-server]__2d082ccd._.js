@@ -1,3 +1,3 @@
-module.exports=[54799,(a,b,c)=>{b.exports=a.x("crypto",()=>require("crypto"))},63021,(a,b,c)=>{b.exports=a.x("@prisma/client-2c3a283f134fdcb6",()=>require("@prisma/client-2c3a283f134fdcb6"))},61469,a=>{"use strict";var b=a.i(63021);let c=globalThis.prisma??new b.PrismaClient({log:["error","warn"]});a.s(["db",0,c])},23804,a=>{a.v(a=>Promise.resolve().then(()=>a(5246)))}];
+module.exports=[54799,(a,b,c)=>{b.exports=a.x("crypto",()=>require("crypto"))},63021,(a,b,c)=>{b.exports=a.x("@prisma/client-2c3a283f134fdcb6",()=>require("@prisma/client-2c3a283f134fdcb6"))},61469,a=>{"use strict";var b=a.i(63021);let c=globalThis.prisma??new b.PrismaClient({log:["query"]});a.s(["db",0,c])},23804,a=>{a.v(a=>Promise.resolve().then(()=>a(5246)))}];
 
 //# sourceMappingURL=%5Broot-of-the-server%5D__2d082ccd._.js.map

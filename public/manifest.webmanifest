@@ -1,59 +1,64 @@
 {
-  "name": "njadder — منصة تيليجرام الاحترافية",
+  "name": "njadder — Unified Telegram Tool (v1.2.1)",
   "short_name": "njadder",
-  "description": "أداة تيليجرام الموحدة: تسجيل دخول آمن، سحب وإضافة أعضاء، 158+ أمر",
-  "start_url": "/dashboard",
-  "scope": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "description": "لوحة تحكم njadder v1.2.1 — أداة تيليجرام الموحدة. Secure Login، Live Ban Checker، مدير بروكسي.",
   "lang": "ar",
   "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#0e1621",
+  "theme_color": "#229ED9",
   "categories": ["productivity", "utilities", "social"],
   "icons": [
+    { "src": "/icons/icon-16x16.png",   "sizes": "16x16",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-32x32.png",   "sizes": "32x32",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-48x48.png",   "sizes": "48x48",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-72x72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-96x96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-180x180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-256x256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
     {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "name": "إعدادات config.ini",
+      "short_name": "الإعدادات",
+      "description": "تعديل إعدادات API والمجموعات والحدود",
+      "url": "/?action=config",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     },
     {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "name": "مدير البروكسي",
+      "short_name": "البروكسي",
+      "description": "إدارة بروكسي تيليجرام وطبقة الأمان",
+      "url": "/?action=proxy",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "إدارة الحسابات",
+      "short_name": "الحسابات",
+      "description": "إدارة جلسات حسابات تيليجرام",
+      "url": "/?action=accounts",
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ],
   "screenshots": [
     {
-      "src": "/icons/screenshot-mobile.png",
-      "sizes": "1080x1920",
+      "src": "/dashboard-initial.png",
+      "sizes": "1280x1439",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "wide",
+      "label": "اللوحة الرئيسية"
     }
   ],
-  "shortcuts": [
-    {
-      "name": "إضافة حساب",
-      "short_name": "حساب جديد",
-      "description": "تسجيل دخول تيليجرام لحساب جديد",
-      "url": "/telegram-login",
-      "icons": [{ "src": "/icons/shortcut-add.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "مدير الأوامر",
-      "short_name": "الأوامر",
-      "description": "تنفيذ أوامر تيليجرام",
-      "url": "/commands",
-      "icons": [{ "src": "/icons/shortcut-cmds.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "السحب والإضافة",
-      "short_name": "سحب",
-      "description": "سحب وإضافة أعضاء المجموعات",
-      "url": "/mass-tools",
-      "icons": [{ "src": "/icons/shortcut-scrape.png", "sizes": "96x96" }]
-    }
-  ]
+  "prefer_related_applications": false,
+  "id": "/?source=pwa"
 }
