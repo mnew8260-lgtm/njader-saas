@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/ban-checker/page": "app/(dashboard)/ban-checker/page.js"
+}

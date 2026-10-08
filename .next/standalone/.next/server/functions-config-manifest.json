@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "functions": {
+    "/_middleware": {
+      "runtime": "nodejs",
+      "matchers": [
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?(?:\\/((?!_next\\/static|_next\\/image|favicon.ico).*))(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/((?!_next/static|_next/image|favicon.ico).*)"
+        }
+      ]
+    },
+    "/api/accounts/[id]/proxy": {},
+    "/api/accounts/list": {},
+    "/api/admin/api-pool/add": {},
+    "/api/admin/api-pool/list": {},
+    "/api/admin/api-pool/remove": {},
+    "/api/admin/ban-checker": {
+      "maxDuration": 60
+    },
+    "/api/admin/proxy": {},
+    "/api/admin/proxy/[id]": {},
+    "/api/admin/proxy/assign": {},
+    "/api/admin/proxy/import": {},
+    "/api/admin/proxy/test-all": {
+      "maxDuration": 60
+    },
+    "/api/admin/users/[id]/approve": {},
+    "/api/admin/users/[id]/extend": {},
+    "/api/admin/users/[id]/reject": {},
+    "/api/admin/users/[id]/revoke": {},
+    "/api/admin/users/list": {},
+    "/api/auth/login": {},
+    "/api/auth/logout": {},
+    "/api/auth/me": {},
+    "/api/auth/refresh": {},
+    "/api/auth/signup": {},
+    "/api/commands/execute": {
+      "maxDuration": 60
+    },
+    "/api/commands/history": {},
+    "/api/commands/list": {},
+    "/api/telegram/logout": {
+      "maxDuration": 30
+    },
+    "/api/telegram/send-code": {
+      "maxDuration": 60
+    },
+    "/api/telegram/status": {
+      "maxDuration": 30
+    },
+    "/api/telegram/verify-code": {
+      "maxDuration": 60
+    },
+    "/api/telegram/verify-password": {
+      "maxDuration": 60
+    }
+  }
+}

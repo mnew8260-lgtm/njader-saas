@@ -1,0 +1,12 @@
+{
+  "pages": {
+    "/_app": []
+  },
+  "devFiles": [],
+  "polyfillFiles": [],
+  "lowPriorityFiles": [
+    "static/knBsk-B24MEiven4ILmhm/_ssgManifest.js",
+    "static/knBsk-B24MEiven4ILmhm/_buildManifest.js"
+  ],
+  "rootMainFiles": []
+}

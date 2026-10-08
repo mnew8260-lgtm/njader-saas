@@ -1,0 +1,339 @@
+{
+  "version": 3,
+  "pages404": true,
+  "appType": "app",
+  "caseSensitive": false,
+  "basePath": "",
+  "redirects": [
+    {
+      "source": "/:path+/",
+      "destination": "/:path+",
+      "internal": true,
+      "priority": true,
+      "statusCode": 308,
+      "regex": "^(?:/((?:[^/]+?)(?:/(?:[^/]+?))*))/$"
+    }
+  ],
+  "headers": [],
+  "rewrites": {
+    "beforeFiles": [],
+    "afterFiles": [],
+    "fallback": []
+  },
+  "dynamicRoutes": [
+    {
+      "page": "/api/accounts/[id]/proxy",
+      "regex": "^/api/accounts/([^/]+?)/proxy(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/accounts/(?<nxtPid>[^/]+?)/proxy(?:/)?$"
+    },
+    {
+      "page": "/api/admin/proxy/[id]",
+      "regex": "^/api/admin/proxy/([^/]+?)(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/proxy/(?<nxtPid>[^/]+?)(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/[id]/approve",
+      "regex": "^/api/admin/users/([^/]+?)/approve(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)/approve(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/[id]/extend",
+      "regex": "^/api/admin/users/([^/]+?)/extend(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)/extend(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/[id]/reject",
+      "regex": "^/api/admin/users/([^/]+?)/reject(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)/reject(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/[id]/revoke",
+      "regex": "^/api/admin/users/([^/]+?)/revoke(?:/)?$",
+      "routeKeys": {
+        "nxtPid": "nxtPid"
+      },
+      "namedRegex": "^/api/admin/users/(?<nxtPid>[^/]+?)/revoke(?:/)?$"
+    }
+  ],
+  "staticRoutes": [
+    {
+      "page": "/",
+      "regex": "^/(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/(?:/)?$"
+    },
+    {
+      "page": "/_global-error",
+      "regex": "^/_global\\-error(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_global\\-error(?:/)?$"
+    },
+    {
+      "page": "/_not-found",
+      "regex": "^/_not\\-found(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/_not\\-found(?:/)?$"
+    },
+    {
+      "page": "/accounts",
+      "regex": "^/accounts(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/accounts(?:/)?$"
+    },
+    {
+      "page": "/admin/api-pool",
+      "regex": "^/admin/api\\-pool(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/api\\-pool(?:/)?$"
+    },
+    {
+      "page": "/admin/users",
+      "regex": "^/admin/users(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin/users(?:/)?$"
+    },
+    {
+      "page": "/admin-secret",
+      "regex": "^/admin\\-secret(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/admin\\-secret(?:/)?$"
+    },
+    {
+      "page": "/api",
+      "regex": "^/api(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api(?:/)?$"
+    },
+    {
+      "page": "/api/accounts/list",
+      "regex": "^/api/accounts/list(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/accounts/list(?:/)?$"
+    },
+    {
+      "page": "/api/admin/api-pool/add",
+      "regex": "^/api/admin/api\\-pool/add(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/api\\-pool/add(?:/)?$"
+    },
+    {
+      "page": "/api/admin/api-pool/list",
+      "regex": "^/api/admin/api\\-pool/list(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/api\\-pool/list(?:/)?$"
+    },
+    {
+      "page": "/api/admin/api-pool/remove",
+      "regex": "^/api/admin/api\\-pool/remove(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/api\\-pool/remove(?:/)?$"
+    },
+    {
+      "page": "/api/admin/ban-checker",
+      "regex": "^/api/admin/ban\\-checker(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/ban\\-checker(?:/)?$"
+    },
+    {
+      "page": "/api/admin/proxy",
+      "regex": "^/api/admin/proxy(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/proxy(?:/)?$"
+    },
+    {
+      "page": "/api/admin/proxy/assign",
+      "regex": "^/api/admin/proxy/assign(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/proxy/assign(?:/)?$"
+    },
+    {
+      "page": "/api/admin/proxy/import",
+      "regex": "^/api/admin/proxy/import(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/proxy/import(?:/)?$"
+    },
+    {
+      "page": "/api/admin/proxy/test-all",
+      "regex": "^/api/admin/proxy/test\\-all(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/proxy/test\\-all(?:/)?$"
+    },
+    {
+      "page": "/api/admin/users/list",
+      "regex": "^/api/admin/users/list(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/admin/users/list(?:/)?$"
+    },
+    {
+      "page": "/api/auth/login",
+      "regex": "^/api/auth/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/login(?:/)?$"
+    },
+    {
+      "page": "/api/auth/logout",
+      "regex": "^/api/auth/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/logout(?:/)?$"
+    },
+    {
+      "page": "/api/auth/me",
+      "regex": "^/api/auth/me(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/me(?:/)?$"
+    },
+    {
+      "page": "/api/auth/refresh",
+      "regex": "^/api/auth/refresh(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/refresh(?:/)?$"
+    },
+    {
+      "page": "/api/auth/signup",
+      "regex": "^/api/auth/signup(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/auth/signup(?:/)?$"
+    },
+    {
+      "page": "/api/commands/execute",
+      "regex": "^/api/commands/execute(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/commands/execute(?:/)?$"
+    },
+    {
+      "page": "/api/commands/history",
+      "regex": "^/api/commands/history(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/commands/history(?:/)?$"
+    },
+    {
+      "page": "/api/commands/list",
+      "regex": "^/api/commands/list(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/commands/list(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/logout",
+      "regex": "^/api/telegram/logout(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/logout(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/send-code",
+      "regex": "^/api/telegram/send\\-code(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/send\\-code(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/status",
+      "regex": "^/api/telegram/status(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/status(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/verify-code",
+      "regex": "^/api/telegram/verify\\-code(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/verify\\-code(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/verify-password",
+      "regex": "^/api/telegram/verify\\-password(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/verify\\-password(?:/)?$"
+    },
+    {
+      "page": "/ban-checker",
+      "regex": "^/ban\\-checker(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/ban\\-checker(?:/)?$"
+    },
+    {
+      "page": "/commands",
+      "regex": "^/commands(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/commands(?:/)?$"
+    },
+    {
+      "page": "/dashboard",
+      "regex": "^/dashboard(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/dashboard(?:/)?$"
+    },
+    {
+      "page": "/login",
+      "regex": "^/login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/login(?:/)?$"
+    },
+    {
+      "page": "/mass-tools",
+      "regex": "^/mass\\-tools(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/mass\\-tools(?:/)?$"
+    },
+    {
+      "page": "/pending",
+      "regex": "^/pending(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/pending(?:/)?$"
+    },
+    {
+      "page": "/proxy-manager",
+      "regex": "^/proxy\\-manager(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/proxy\\-manager(?:/)?$"
+    },
+    {
+      "page": "/secure-login",
+      "regex": "^/secure\\-login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/secure\\-login(?:/)?$"
+    },
+    {
+      "page": "/signup",
+      "regex": "^/signup(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/signup(?:/)?$"
+    },
+    {
+      "page": "/telegram-login",
+      "regex": "^/telegram\\-login(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/telegram\\-login(?:/)?$"
+    }
+  ],
+  "dataRoutes": [],
+  "rsc": {
+    "header": "rsc",
+    "varyHeader": "rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch",
+    "prefetchHeader": "next-router-prefetch",
+    "didPostponeHeader": "x-nextjs-postponed",
+    "contentTypeHeader": "text/x-component",
+    "suffix": ".rsc",
+    "prefetchSegmentHeader": "next-router-segment-prefetch",
+    "prefetchSegmentSuffix": ".segment.rsc",
+    "prefetchSegmentDirSuffix": ".segments",
+    "clientParamParsing": false,
+    "dynamicRSCPrerender": false
+  },
+  "rewriteHeaders": {
+    "pathHeader": "x-nextjs-rewritten-path",
+    "queryHeader": "x-nextjs-rewritten-query"
+  }
+}

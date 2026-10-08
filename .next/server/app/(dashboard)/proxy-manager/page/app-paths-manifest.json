@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/proxy-manager/page": "app/(dashboard)/proxy-manager/page.js"
+}

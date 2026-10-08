@@ -1,0 +1,12 @@
+var R=require("../../../../chunks/[turbopack]_runtime.js")("server/app/api/telegram/send-code/route.js")
+R.c("server/chunks/[root-of-the-server]__bbacdcd9._.js")
+R.c("server/chunks/[root-of-the-server]__f4f43572._.js")
+R.c("server/chunks/node_modules_next_f5199d09._.js")
+R.c("server/chunks/node_modules_next_dist_79f1aee4._.js")
+R.c("server/chunks/_dbb9fdc0._.js")
+R.c("server/chunks/node_modules_2e22a2e3._.js")
+R.c("server/chunks/[root-of-the-server]__d7355d04._.js")
+R.c("server/chunks/node_modules_083f6b31._.js")
+R.c("server/chunks/_next-internal_server_app_api_telegram_send-code_route_actions_a2ad24e9.js")
+R.m(18020)
+module.exports=R.m(18020).exports

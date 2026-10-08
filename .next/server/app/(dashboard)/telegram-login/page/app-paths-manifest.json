@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/telegram-login/page": "app/(dashboard)/telegram-login/page.js"
+}
