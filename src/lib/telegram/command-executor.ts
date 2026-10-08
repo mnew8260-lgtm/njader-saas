@@ -9,6 +9,12 @@ import { db } from '@/lib/db';
 import { makeClient } from '@/lib/telegram/client';
 import { getCommandById } from '@/lib/commands';
 
+// Global timeout tracker for Vercel 60s limit
+const MAX_EXECUTION_MS = 50000;
+function isTimeUp(startTime: number): boolean {
+  return Date.now() - startTime > MAX_EXECUTION_MS;
+}
+
 export interface ExecResult {
   ok: boolean;
   output: string;
@@ -638,10 +644,11 @@ export async function executeCommand(opts: {
         const source = await resolvePeer(client, String(params.sourcePeer));
         const target = await resolvePeer(client, String(params.targetPeer));
         const limit = Number(params.limit ?? 50);
-        const delay = Number(params.delay ?? 10) * 1000;
+        const delay = Math.min(Number(params.delay ?? 3) * 1000, 3000); // cap delay at 3s
         const filterBots = params.filterBots !== false;
         const filterDeleted = params.filterDeleted !== false;
         const stopOnFlood = params.stopOnFlood !== false;
+        const execStart = Date.now();
 
         // 1) Scrape
         const participants = await client.getParticipants(source, { limit: limit * 2 });
@@ -657,6 +664,10 @@ export async function executeCommand(opts: {
         const results: string[] = [];
         let success = 0, failed = 0;
         for (const p of filtered as any[]) {
+          if (isTimeUp(execStart)) {
+            results.push(`⏱️ اقترب وقت النفاذ — توقف عند ${success}/${filtered.length}`);
+            break;
+          }
           try {
             const userEntity = await client.getInputEntity(p);
             await client.invoke(new Api.channels.InviteToChannel({
@@ -679,7 +690,10 @@ export async function executeCommand(opts: {
           }
           await new Promise((r) => setTimeout(r, delay));
         }
-        output += `📤 نتائج الإضافة (${filtered.length} محاولة):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        const remaining = filtered.length - success - failed;
+        output += `📤 نتائج الإضافة:\nنجح: ${success} | فشل: ${failed}`;
+        if (remaining > 0) output += ` | متبقي: ${remaining} (أعد التشغيل للمتابعة)`;
+        output += `\n\n` + results.join('\n');
         break;
       }
       case 'mass_dm_group_members': {
@@ -1414,7 +1428,15 @@ export async function executeCommand(opts: {
         const filtered = participants.filter((p: any) => !p.bot && !p.deleted).slice(0, limit);
         const results: string[] = [];
         let success = 0, failed = 0;
+        const startTime = Date.now();
+        const MAX_DURATION_MS = 50000; // 50s hard limit (Vercel = 60s)
+        
         for (const p of filtered as any[]) {
+          // Check if we're running out of time
+          if (Date.now() - startTime > MAX_DURATION_MS) {
+            results.push(`⏱️ اقترب وقت النفاذ — توقف عند ${success}/${filtered.length}`);
+            break;
+          }
           try {
             const userEntity = await client.getInputEntity(p);
             await client.invoke(new Api.channels.InviteToChannel({
@@ -1424,16 +1446,22 @@ export async function executeCommand(opts: {
             success++;
           } catch (e: any) {
             if (e.message?.includes('FLOOD_WAIT')) {
-              results.push(`⛔ FloodWait — توقف`);
+              const m = e.message.match(/(\d+)/);
+              const wait = m ? parseInt(m[1]) : 60;
+              results.push(`⛔ FloodWait ${wait}s — توقف`);
               failed++;
               break;
             }
-            results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
+            results.push(`✗ ${p.firstName || p.id}: ${(e.message || '').substring(0, 40)}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 8000));
+          // Reduced delay: 2s instead of 8s (fit more in 50s window)
+          await new Promise((r) => setTimeout(r, 2000));
         }
-        output = `⚡ استنساخ ${filtered.length} عضو:\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
+        const remaining = filtered.length - success - failed;
+        output = `⚡ استنساخ ${filtered.length} عضو:\nنجح: ${success} | فشل: ${failed}`;
+        if (remaining > 0) output += ` | متبقي: ${remaining} (شغّل مرة أخرى للمتابعة)`;
+        output += `\n\n` + results.join('\n');
         break;
       }
       case 'ramex_incremental_add': {
@@ -1462,7 +1490,7 @@ export async function executeCommand(opts: {
               results.push(`  ✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
               failed++;
             }
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, 2000));
           }
           if (b < totalBatches - 1) {
             results.push(`  ⏸️ انتظار ${intervalMinutes} دقيقة...`);
@@ -1502,7 +1530,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 10000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `🎛️ إضافة مع تصفية متقدمة:\nفلتر: ${filtered.length} من ${participants.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
@@ -1533,7 +1561,7 @@ export async function executeCommand(opts: {
                 results.push(`  ✗ ${p.firstName || p.id}: ${e.message?.substring(0, 30)}`);
                 failed++;
               }
-              await new Promise((r) => setTimeout(r, 8000));
+              await new Promise((r) => setTimeout(r, 2000));
             }
           } catch (e: any) {
             results.push(`✗ فشل حل ${targetPeer}: ${e.message}`);
@@ -1564,7 +1592,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 10000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `⏭️ تخطي الموجودين:\nالموجودون: ${existingIds.size}\nالجدد: ${toAdd.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
@@ -1590,7 +1618,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 12000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `🔄 Round Robin (حساب واحد):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
@@ -1623,7 +1651,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${p.firstName}: ${e.message?.substring(0, 30)}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 10000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `🌐 استهداف جغرافي (${countries.join(', ')}):\nمطابق: ${filtered.length}\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
@@ -1685,7 +1713,7 @@ export async function executeCommand(opts: {
             } catch {
               failed++;
             }
-            await new Promise((r) => setTimeout(r, 5000));
+            await new Promise((r) => setTimeout(r, 2000));
           }
           output += `\n✓ أُضيف: ${added} | ✗ فشل: ${failed}`;
         }
@@ -2580,7 +2608,7 @@ export async function executeCommand(opts: {
               results.push(`✗ ${u.firstName || u.id}: ${friendlyError(e.message || "")}`);
               failed++;
             }
-            await new Promise((r) => setTimeout(r, 8000));
+            await new Promise((r) => setTimeout(r, 2000));
           }
           output = `👁️ إضافة من القرّاء (${viewers.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         } catch (e: any) {
@@ -2658,7 +2686,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${s.id}: ${e.message?.substring(0, 30)}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 10000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `↪️ إضافة من مصادر التوجيه (${sources.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
@@ -2729,7 +2757,7 @@ export async function executeCommand(opts: {
             results.push(`✗ ${p.firstName || p.id}: ${friendlyError(e.message || "")}`);
             failed++;
           }
-          await new Promise((r) => setTimeout(r, 8000));
+          await new Promise((r) => setTimeout(r, 2000));
         }
         output = `🔄 إضافة المتبادلين فقط (${mutual.length}):\nنجح: ${success} | فشل: ${failed}\n\n` + results.join('\n');
         break;
