@@ -118,25 +118,55 @@ async function resolvePeer(client: TelegramClient, peerInput: string): Promise<a
     }
   }
 
-  // Try as t.me link (https://t.me/xxx or t.me/xxx)
+  // Try as t.me link — handles ALL formats:
+  //   https://t.me/+xxxxx        (private invite)
+  //   https://t.me/joinchat/xxxx (old private invite)
+  //   https://t.me/public_group  (public)
+  //   t.me/+xxxxx
   if (input.includes('t.me/') || input.includes('t.me/+')) {
-    const match = input.match(/t\.me\/(?:\+)?([a-zA-Z0-9_-]+)/);
+    // Extract hash from private invite links (t.me/+xxx or t.me/joinchat/xxx)
+    const privateMatch = input.match(/t\.me\/(?:\+|joinchat\/)([a-zA-Z0-9_-]+)/);
+    if (privateMatch) {
+      const hash = privateMatch[1];
+      try {
+        // Step 1: Check if already a member
+        const checkResult = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+        if (checkResult.chat) {
+          // Already a member — return the entity
+          return await client.getInputEntity(checkResult.chat);
+        }
+        // Step 2: Not a member — JOIN the group via invite link
+        if (checkResult.className === 'ChatInvite' || checkResult.className === 'ChatInvitePeek' || !checkResult.chat) {
+          const importResult = await client.invoke(new Api.messages.ImportChatInvite({ hash }));
+          if (importResult.chats?.[0]) {
+            return await client.getInputEntity(importResult.chats[0]);
+          }
+          if (importResult.updates?.chats?.[0]) {
+            return await client.getInputEntity(importResult.updates.chats[0]);
+          }
+        }
+      } catch {}
+    }
+    // Public link (t.me/username)
+    const publicMatch = input.match(/t\.me\/([a-zA-Z][a-zA-Z0-9_]+)/);
+    if (publicMatch && !input.includes('t.me/+') && !input.includes('joinchat')) {
+      try {
+        return await client.getInputEntity('@' + publicMatch[1]);
+      } catch {}
+    }
+  }
+
+  // Also handle raw "joinchat/xxxx" without t.me prefix
+  if (input.includes('joinchat/')) {
+    const match = input.match(/joinchat\/([a-zA-Z0-9_-]+)/);
     if (match) {
       const hash = match[1];
-      if (input.includes('t.me/+')) {
-        // Private invite link — try to import
-        try {
-          const result = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
-          if (result.chat) {
-            return await client.getInputEntity(result.chat);
-          }
-        } catch {}
-      } else {
-        // Public link — treat as username
-        try {
-          return await client.getInputEntity('@' + hash);
-        } catch {}
-      }
+      try {
+        const checkResult = await client.invoke(new Api.messages.CheckChatInvite({ hash }));
+        if (checkResult.chat) return await client.getInputEntity(checkResult.chat);
+        const importResult = await client.invoke(new Api.messages.ImportChatInvite({ hash }));
+        if (importResult.chats?.[0]) return await client.getInputEntity(importResult.chats[0]);
+      } catch {}
     }
   }
 
