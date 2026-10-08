@@ -8,5 +8,5 @@ R.c("server/chunks/node_modules_2e22a2e3._.js")
 R.c("server/chunks/[root-of-the-server]__d7355d04._.js")
 R.c("server/chunks/node_modules_083f6b31._.js")
 R.c("server/chunks/_next-internal_server_app_api_admin_ban-checker_route_actions_1ded3491.js")
-R.m(49471)
-module.exports=R.m(49471).exports
+R.m(63854)
+module.exports=R.m(63854).exports

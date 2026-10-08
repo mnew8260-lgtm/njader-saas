@@ -1,10 +1,20 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
-import { DashboardNav } from '@/components/dashboard/nav';
+import { MobileAppNav } from '@/components/mobile/BottomNav';
 
 export const metadata: Metadata = {
-  title: 'لوحة التحكم · njadder',
+  title: 'njadder · لوحة التحكم',
+  description: 'إدارة حسابات تيليجرام، سحب وإضافة أعضاء، 158+ أمر',
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0a0a0a',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
 };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -14,12 +24,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
-      <DashboardNav user={user} />
-      <main className="flex-1 container mx-auto px-4 py-6 max-w-6xl">{children}</main>
-      <footer className="mt-auto py-4 text-center text-xs text-muted-foreground border-t">
-        © 2026 njadder · <a href="https://t.me/NMDDER_DEV" className="text-primary underline" target="_blank" rel="noreferrer">@NMDDER_DEV</a>
-      </footer>
+    <div className="min-h-screen bg-background flex flex-col">
+      <MobileAppNav user={user} />
+      <main className="flex-1 container mx-auto max-w-md px-4 py-4 pb-24">
+        {children}
+      </main>
     </div>
   );
 }
