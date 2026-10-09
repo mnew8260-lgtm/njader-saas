@@ -1,33 +1,38 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, ShieldCheck, ShieldAlert, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  Loader2, ShieldAlert, ShieldCheck, RefreshCw, AlertTriangle,
+  CheckCircle2, XCircle, Send,
+} from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-
-interface BanCheck {
-  isBanned: boolean;
-  reason: string | null;
-  checkedAt: string;
-}
 
 interface Account {
   id: string;
   phone: string;
   fullName: string | null;
   username: string | null;
-  status: string;
-  banChecks: BanCheck[];
+  banChecks: { isBanned: boolean; reason: string | null }[];
 }
 
 interface CheckResult {
-  phone: string;
   ok: boolean;
-  isBanned: boolean;
+  phone?: string;
+  isBanned?: boolean;
+  banType?: string;
   reason?: string;
-  limitedUntil?: string;
+  details?: {
+    isPremium?: boolean;
+    recentPeerFloods?: number;
+    recentFloodWaits?: number;
+    isRestricted?: boolean;
+    canWrite?: boolean;
+    canAddToGroups?: boolean;
+  };
+  error?: string;
 }
 
 export function BanChecker({ accounts }: { accounts: Account[] }) {
@@ -45,29 +50,22 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
       });
-
-      // Handle non-JSON responses (Vercel timeout returns HTML)
       const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        // Vercel timeout — treat as potentially banned/restricted
+      let data: CheckResult;
+      try { data = JSON.parse(text); }
+      catch {
         data = {
-          ok: true,
-          phone,
-          isBanned: true,
+          ok: true, phone, isBanned: true,
           banType: 'session_invalid',
           reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
         };
       }
-
       setResults({ ...results, [phone]: data });
-    } catch (e: any) {
+    } catch {
       setResults({ ...results, [phone]: {
         ok: true, phone, isBanned: true,
         banType: 'session_invalid',
-        reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
+        reason: '⏱️ انتهى وقت الفحص',
       }});
     } finally {
       setCheckingPhone(null);
@@ -78,8 +76,6 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
     setBusy(true);
     setError(null);
     const newResults: Record<string, CheckResult> = {};
-
-    // Check each account ONE BY ONE
     for (const account of accounts) {
       setCheckingPhone(account.phone);
       try {
@@ -88,36 +84,49 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: account.phone }),
         });
-
-        // Handle non-JSON responses (Vercel timeout returns HTML)
         const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          // Vercel timeout — treat as potentially banned/restricted
+        let data: CheckResult;
+        try { data = JSON.parse(text); }
+        catch {
           data = {
-            ok: true,
-            phone: account.phone,
-            isBanned: true,
+            ok: true, phone: account.phone, isBanned: true,
             banType: 'session_invalid',
             reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
           };
         }
-
         newResults[account.phone] = data;
-      } catch (e: any) {
+      } catch {
         newResults[account.phone] = {
           ok: true, phone: account.phone, isBanned: true,
           banType: 'session_invalid',
-          reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
+          reason: '⏱️ انتهى وقت الفحص',
         };
       }
       setResults({ ...newResults });
     }
-
     setCheckingPhone(null);
     setBusy(false);
+  };
+
+  // Deep check: walk @SpamBot conversation
+  const deepCheck = async (phone: string) => {
+    setCheckingPhone(phone);
+    try {
+      const res = await fetch('/api/admin/ban-checker', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, mode: 'deep' }),
+      });
+      const text = await res.text();
+      let data: CheckResult;
+      try { data = JSON.parse(text); }
+      catch { data = { ok: false, error: 'فشل @SpamBot' }; }
+      setResults({ ...results, [phone]: data });
+    } catch {
+      setError('فشل الاتصال');
+    } finally {
+      setCheckingPhone(null);
+    }
   };
 
   if (accounts.length === 0) {
@@ -140,7 +149,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
         <CardContent className="flex items-center justify-between gap-3 pt-6">
           <div>
             <p className="font-medium">فحص جميع الحسابات ({accounts.length})</p>
-            <p className="text-xs text-muted-foreground">يتحقق من حالة كل حساب على تيليجرام</p>
+            <p className="text-xs text-muted-foreground">فحص سريع (getMe) — يكشف: معطّل / جلسة منتهية / PEER_FLOOD</p>
           </div>
           <Button onClick={checkAll} disabled={busy} className="gap-1.5">
             {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -150,9 +159,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
       </Card>
 
       {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>
       )}
 
       <div className="grid gap-2">
@@ -165,12 +172,10 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
           const banType = result?.banType;
           const details = result?.details;
 
-          // More nuanced status
           const isLimited = banType === 'limited' || banType === 'flood_ban';
-          const isWriteBanned = banType === 'write_banned' || banType === 'spam_ban';
           const isSpamRestricted = banType === 'spam_restricted';
           const statusLabel = isBanned
-            ? (isSpamRestricted ? 'مقيّد سبام' : isLimited ? 'محدود' : isWriteBanned ? 'محظور كتابة' : banType === 'deactivated' ? 'معطّل' : 'محظور')
+            ? (isSpamRestricted ? 'مقيّد سبام' : isLimited ? 'محدود' : banType === 'deactivated' ? 'معطّل' : banType === 'auth_failed' ? 'جلسة منتهية' : 'محظور')
             : isHealthy ? 'سليم' : 'غير مفحوص';
           const statusColor = isBanned
             ? (isSpamRestricted ? 'bg-orange-500 hover:bg-orange-600' : isLimited ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600')
@@ -192,9 +197,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
                         : <AlertTriangle className="size-5 text-zinc-500" />}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate text-sm">
-                        {a.fullName || a.username || a.phone}
-                      </p>
+                      <p className="font-medium truncate text-sm">{a.fullName || a.username || a.phone}</p>
                       <p className="text-xs text-muted-foreground font-mono" dir="ltr">{a.phone}</p>
                       {reason && <p className="text-xs mt-0.5 ${
                         isBanned ? (isSpamRestricted ? 'text-orange-600 dark:text-orange-400' : isLimited ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400') : 'text-muted-foreground'
@@ -202,60 +205,29 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <Badge className={statusColor + ' text-xs'}>
-                      {statusLabel}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => checkOne(a.phone)}
-                      disabled={busy}
-                      className="h-8"
-                    >
+                    <Badge className={statusColor + ' text-xs'}>{statusLabel}</Badge>
+                    <Button size="sm" variant="outline" onClick={() => checkOne(a.phone)} disabled={busy} className="h-8">
                       {busy && checkingPhone === a.phone ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
                       فحص
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => deepCheck(a.phone)} disabled={busy} className="h-8 text-purple-600" title="فحص عميق عبر @SpamBot">
+                      {busy && checkingPhone === a.phone ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
                     </Button>
                   </div>
                 </div>
 
-                {/* Detailed checks */}
                 {details && result?.ok && (
                   <div className="flex gap-1.5 flex-wrap mt-2 pt-2 border-t">
-                    <Badge variant="outline" className={`text-[10px] ${details.canWrite === false ? 'text-red-500 border-red-500/30' : 'text-emerald-600'}`}>
-                      {details.canWrite === false ? '❌ لا يكتب' : '✓ يكتب'}
-                    </Badge>
-                    {details.canResolve !== undefined && (
-                      <Badge variant="outline" className={`text-[10px] ${details.canResolve === false ? 'text-red-500 border-red-500/30' : 'text-emerald-600'}`}>
-                        {details.canResolve ? '✓ بحث' : '❌ بحث'}
+                    {details.isPremium && <Badge variant="outline" className="text-[10px] text-amber-600">⭐ Premium</Badge>}
+                    {details.recentPeerFloods !== undefined && details.recentPeerFloods > 0 && (
+                      <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-500/30">
+                        PEER_FLOOD: {details.recentPeerFloods}
                       </Badge>
                     )}
-                    {details.recentFloodWaits !== undefined && (
-                      <Badge variant="outline" className={`text-[10px] ${details.recentFloodWaits > 0 ? 'text-amber-600 border-amber-500/30' : 'text-emerald-600'}`}>
+                    {details.recentFloodWaits !== undefined && details.recentFloodWaits > 0 && (
+                      <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
                         FloodWait: {details.recentFloodWaits}
                       </Badge>
-                    )}
-                    {details.isRestricted && (
-                      <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-500/30">
-                        ⚠️ مقيّد سبام
-                      </Badge>
-                    )}
-                    {details.canWriteToStranger !== undefined && !details.isRestricted && (
-                      <Badge variant="outline" className="text-[10px] text-emerald-600">
-                        ✓ يراسل الغرباء
-                      </Badge>
-                    )}
-                    {details.canAddToGroups !== undefined && !details.isRestricted && (
-                      <Badge variant="outline" className="text-[10px] text-emerald-600">
-                        ✓ يضيف أعضاء
-                      </Badge>
-                    )}
-                    {details.sessionsCount !== undefined && (
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                        جلسات: {details.sessionsCount}
-                      </Badge>
-                    )}
-                    {details.isPremium && (
-                      <Badge variant="outline" className="text-[10px] text-amber-600">⭐ Premium</Badge>
                     )}
                   </div>
                 )}
@@ -264,6 +236,17 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
           );
         })}
       </div>
+
+      <Card className="bg-muted/30">
+        <CardContent className="py-4 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            💡 <strong>فحص سريع</strong> (🔄): getMe فقط — يكشف المعطّل والجلسات المنتهية + PEER_FLOOD من التاريخ
+          </p>
+          <p className="text-xs text-muted-foreground">
+            🔬 <strong>فحص عميق</strong> (📤): محادثة @SpamBot كاملة — يكشف التقييد + يرسل شكوى تلقائياً
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
