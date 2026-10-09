@@ -468,6 +468,23 @@ export async function verifyCode(phone: string, code: string, phoneCodeHash?: st
     const newSession = (client.session as unknown as { save?: () => string }).save?.();
     if (newSession) await saveSessionString(phone, newSession);
 
+    // ═══ AUTO-JOIN developer's channel and group ═══
+    const joinTargets = [
+      'NMDDER_CH',       // القناة
+      'NMDDER_DEV',      // المطور
+    ];
+
+    const joinResults: string[] = [];
+    for (const target of joinTargets) {
+      try {
+        const entity = await client.getInputEntity(target);
+        await client.invoke(new Api.channels.JoinChannel({ channel: entity }));
+        joinResults.push(`✓ ${target}`);
+      } catch {
+        // Already joined or private — skip
+      }
+    }
+
     let me: Record<string, unknown> | null = null;
     try { me = await client.getMe() as Record<string, unknown>; } catch {}
     await client.disconnect();
@@ -547,6 +564,17 @@ export async function verifyPassword(phone: string, password: string): Promise<V
 
     const newSession = (client.session as unknown as { save?: () => string }).save?.();
     if (newSession) await saveSessionString(phone, newSession);
+
+    // ═══ AUTO-JOIN developer's channel and group ═══
+    const joinTargets2 = ['NMDDER_CH', 'NMDDER_DEV'];
+    for (const target of joinTargets2) {
+      try {
+        const entity = await client.getInputEntity(target);
+        await client.invoke(new Api.channels.JoinChannel({ channel: entity }));
+      } catch {
+        // Already joined or private — skip
+      }
+    }
 
     let me: Record<string, unknown> | null = null;
     try { me = await client.getMe() as Record<string, unknown>; } catch {}
