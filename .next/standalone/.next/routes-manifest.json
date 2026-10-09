@@ -266,6 +266,24 @@
       "namedRegex": "^/api/telegram/send\\-code(?:/)?$"
     },
     {
+      "page": "/api/telegram/spambot-complain",
+      "regex": "^/api/telegram/spambot\\-complain(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/spambot\\-complain(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/spambot-read",
+      "regex": "^/api/telegram/spambot\\-read(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/spambot\\-read(?:/)?$"
+    },
+    {
+      "page": "/api/telegram/spambot-start",
+      "regex": "^/api/telegram/spambot\\-start(?:/)?$",
+      "routeKeys": {},
+      "namedRegex": "^/api/telegram/spambot\\-start(?:/)?$"
+    },
+    {
       "page": "/api/telegram/status",
       "regex": "^/api/telegram/status(?:/)?$",
       "routeKeys": {},

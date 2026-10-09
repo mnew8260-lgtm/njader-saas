@@ -54,6 +54,9 @@
     "/api/telegram/send-code": {
       "maxDuration": 60
     },
+    "/api/telegram/spambot-complain": {},
+    "/api/telegram/spambot-read": {},
+    "/api/telegram/spambot-start": {},
     "/api/telegram/status": {
       "maxDuration": 30
     },

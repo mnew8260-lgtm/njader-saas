@@ -470,6 +470,33 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/telegram/spambot-complain/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/telegram/spambot-complain">> = Specific
+  const handler = {} as typeof import("../../src/app/api/telegram/spambot-complain/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/telegram/spambot-read/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/telegram/spambot-read">> = Specific
+  const handler = {} as typeof import("../../src/app/api/telegram/spambot-read/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
+// Validate ../../src/app/api/telegram/spambot-start/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/telegram/spambot-start">> = Specific
+  const handler = {} as typeof import("../../src/app/api/telegram/spambot-start/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/telegram/status/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/telegram/status">> = Specific
