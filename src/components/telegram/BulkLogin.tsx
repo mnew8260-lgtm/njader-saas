@@ -94,9 +94,9 @@ export function BulkLogin() {
 
       setResults([...allResults]);
 
-      // Small delay between phones (only if not the last one)
+      // Delay between phones (3s to let Vercel instance cooldown)
       if (i < phoneList.length - 1) {
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, 3000));
       }
     }
 
@@ -117,18 +117,23 @@ export function BulkLogin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: verifyPhone, code: verifyCode }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { ok: false, error: 'استجابة غير صالحة' }; }
+
       if (data.ok) {
         if (data.status === 'logged_in') {
           setVerifyResult(`✅ تم تسجيل دخول ${verifyPhone} بنجاح! (${data.user?.first_name || ''})`);
-          // Update results to mark this phone as logged in
           setResults(results.map((r) =>
             r.phone === verifyPhone ? { ...r, status: 'logged_in', message: 'تم تسجيل الدخول ✓' } : r
           ));
+          setVerifyCode('');
         } else if (data.status === '2fa_required') {
-          setVerifyResult(`🔐 هذا الحساب يحتاج كلمة مرور ثنائية (2FA). ستحتاج لإدخالها يدوياً.`);
+          // Show 2FA password input
+          setTwoFAPhone(verifyPhone);
+          setTwoFARequired(true);
+          setVerifyResult(`🔐 هذا الحساب يحتاج كلمة مرور ثنائية (2FA). أدخلها أدناه.`);
         }
-        setVerifyCode('');
       } else {
         setVerifyResult(`❌ ${data.error || data.message || 'فشل'}`);
       }
@@ -136,6 +141,41 @@ export function BulkLogin() {
       setVerifyResult(`❌ ${e.message}`);
     } finally {
       setVerifyBusy(false);
+    }
+  };
+
+  // 2FA password verification
+  const [twoFARequired, setTwoFARequired] = useState(false);
+  const [twoFAPhone, setTwoFAPhone] = useState('');
+  const [twoFAPassword, setTwoFAPassword] = useState('');
+  const [twoFABusy, setTwoFABusy] = useState(false);
+
+  const verify2FA = async () => {
+    setTwoFABusy(true);
+    try {
+      const res = await fetch('/api/telegram/verify-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: twoFAPhone, password: twoFAPassword }),
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { ok: false, error: 'استجابة غير صالحة' }; }
+
+      if (data.ok && data.status === 'logged_in') {
+        setVerifyResult(`✅ تم تسجيل دخول ${twoFAPhone} بكلمة المرور الثنائية! (${data.user?.first_name || ''})`);
+        setResults(results.map((r) =>
+          r.phone === twoFAPhone ? { ...r, status: 'logged_in', message: 'تم الدخول بـ 2FA ✓' } : r
+        ));
+        setTwoFARequired(false);
+        setTwoFAPassword('');
+      } else {
+        setVerifyResult(`❌ ${data.error || data.message || 'كلمة المرور غير صحيحة'}`);
+      }
+    } catch (e: any) {
+      setVerifyResult(`❌ ${e.message}`);
+    } finally {
+      setTwoFABusy(false);
     }
   };
 
@@ -292,6 +332,36 @@ export function BulkLogin() {
                 <Alert className={verifyResult.startsWith('✅') ? 'bg-emerald-500/10 border-emerald-500/30' : ''}>
                   <AlertDescription className="text-sm">{verifyResult}</AlertDescription>
                 </Alert>
+              )}
+
+              {/* 2FA Password Input */}
+              {twoFARequired && (
+                <div className="space-y-2 p-3 rounded-md bg-amber-500/10 border border-amber-500/30">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🔐</span>
+                    <p className="text-sm font-medium">كلمة المرور الثنائية (2FA)</p>
+                    <span className="text-xs text-muted-foreground font-mono" dir="ltr">{twoFAPhone}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      placeholder="••••••••"
+                      value={twoFAPassword}
+                      onChange={(e) => setTwoFAPassword(e.target.value)}
+                      dir="ltr"
+                      className="font-mono"
+                      autoFocus
+                    />
+                    <Button
+                      onClick={verify2FA}
+                      disabled={twoFABusy || !twoFAPassword}
+                      className="gap-1.5 shrink-0"
+                    >
+                      {twoFABusy ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                      تأكيد
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

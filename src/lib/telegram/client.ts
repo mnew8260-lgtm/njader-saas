@@ -204,14 +204,16 @@ export async function makeClient(
   const proxy = await getProxyForAccount(phone);
 
   const clientOptions: any = {
-    connectionRetries: 2,  // Reduced from 5 to avoid Vercel timeout
+    connectionRetries: 1,  // Only 1 retry to stay within Vercel timeout
     useWSS: !proxy,
     deviceModel: 'njadder',
     systemVersion: '6.3',
     appVersion: 'njadder-saas/6.3',
     langCode: 'en',
     systemLangCode: 'en',
-    timeout: 10000,  // 10s per connection attempt
+    timeout: 6000,  // 6s per connection attempt (2 attempts = 12s max, but usually connects in 2-3s)
+    autoReconnect: false,
+    floodSleepThreshold: 0,  // Don't auto-sleep on flood
   };
 
   // Add proxy if available
