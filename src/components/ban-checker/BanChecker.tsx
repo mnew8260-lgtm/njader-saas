@@ -40,38 +40,29 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
     setCheckingPhone(phone);
     setError(null);
     try {
-      // 25s timeout — if it takes longer, the account is likely banned
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
-
       const res = await fetch('/api/admin/ban-checker', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
-        signal: controller.signal,
       });
-      clearTimeout(timeoutId);
 
-      const data = await res.json();
+      // Handle non-JSON responses
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { data = { ok: false, error: 'Vercel timeout — حاول مرة أخرى' }; }
+
       if (data.ok) {
         setResults({ ...results, [phone]: data });
       } else {
-        setError(data.error || data.message || 'فشل فحص الحساب');
+        setResults({ ...results, [phone]: { ok: false, phone, error: data.error || data.message || 'فشل' } });
       }
     } catch (e: any) {
-      if (e.name === 'AbortError') {
-        // Timeout = account is likely banned (session can't connect)
-        const bannedResult = {
-          ok: true,
-          phone,
-          isBanned: true,
-          banType: 'session_invalid',
-          reason: '⏱️ انتهى وقت الفحص — الجلسة غير صالحة أو الحساب محظور',
-        };
-        setResults({ ...results, [phone]: bannedResult });
-      } else {
-        setError(e.message);
-      }
+      setResults({ ...results, [phone]: {
+        ok: true, phone, isBanned: true,
+        banType: 'session_invalid',
+        reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
+      }});
     } finally {
       setCheckingPhone(null);
     }
@@ -81,32 +72,33 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
     setBusy(true);
     setError(null);
     const newResults: Record<string, CheckResult> = {};
-    
-    // Check each account ONE BY ONE (avoids Vercel 60s timeout)
+
+    // Check each account ONE BY ONE (each in separate API call)
     for (const account of accounts) {
       setCheckingPhone(account.phone);
       try {
-        // 25s timeout per account
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 25000);
-
         const res = await fetch('/api/admin/ban-checker', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: account.phone }),
-          signal: controller.signal,
         });
-        clearTimeout(timeoutId);
 
-        const data = await res.json();
+        // Handle non-JSON responses (Vercel timeout returns HTML)
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { ok: false, error: 'Vercel timeout — حاول مرة أخرى' };
+        }
+
         if (data.ok) {
           newResults[account.phone] = data;
         } else {
-          newResults[account.phone] = { ok: false, phone: account.phone, error: data.error || 'فشل' };
+          newResults[account.phone] = { ok: false, phone: account.phone, error: data.error || data.message || 'فشل' };
         }
       } catch (e: any) {
         if (e.name === 'AbortError') {
-          // Timeout = account is likely banned
           newResults[account.phone] = {
             ok: true, phone: account.phone, isBanned: true,
             banType: 'session_invalid',
@@ -118,6 +110,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
       }
       setResults({ ...newResults });
     }
+
     setCheckingPhone(null);
     setBusy(false);
   };
