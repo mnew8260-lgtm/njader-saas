@@ -157,70 +157,82 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       }
     }
 
-    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — STRANGER MESSAGE TEST ═══
-    // The DEFINITIVE test: try to send a message to a stranger (@BotFather).
-    // If PEER_FLOOD → account is spam-restricted.
-    // Telegram's restriction message says: "قد لا تتمكنون من مراسلة من لا يمتلك رقم هاتفك"
-    // So if we can't message a stranger, the account IS restricted.
+    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — GROUP INVITE TEST ═══
+    // The DEFINITIVE test for spam restriction:
+    // Telegram says: "قد لا تتمكنون من... إضافتهم إلى المجموعات والقنوات"
+    // So we try to invite @BotFather to a channel → if PEER_FLOOD = restricted
+    //
+    // NOTE: messaging @BotFather directly DOES NOT work as a test because
+    // bots are EXEMPT from the "can't message strangers" restriction.
+    // Only inviting to groups/channels triggers PEER_FLOOD for restricted accounts.
     try {
-      // @BotFather is a public bot (ID: 93372553) — always available
-      // We send a silent message, then delete it immediately
-      const testMsg = await client.sendMessage('@BotFather', {
-        message: '/start',
-        silent: true,
-      });
-      // Success! Account can message strangers → NOT restricted
-      details.canWriteToStranger = true;
-      details.canAddToGroups = true;
-      details.isRestricted = false;
+      // 1. Create a temporary channel for testing
+      const createResult = await client.invoke(new Api.channels.CreateChannel({
+        title: 'njadder_check_' + Date.now(),
+        about: 'temp',
+        megagroup: false,
+      })) as any;
 
-      // Delete the test message
-      if (testMsg && (testMsg as any).id) {
-        try { await client.deleteMessages('@BotFather', [(testMsg as any).id], { revoke: true }); } catch {}
-      }
-    } catch (e: any) {
-      const errStr = (e.message || String(e)).toUpperCase();
-      details.canWriteToStranger = false;
-      details.canAddToGroups = false;
+      const channelId = createResult?.chats?.[0]?.id;
+      const channelAccessHash = createResult?.chats?.[0]?.accessHash;
 
-      // PEER_FLOOD = definitive spam restriction
-      if (errStr.includes('PEER_FLOOD') || errStr.includes('PEERFLOOD')) {
-        await client.disconnect();
-        return {
-          ok: true,
-          isBanned: true,
-          banType: 'spam_restricted',
-          reason: '🟠 تقييد سبام — لا يمكن مراسلة الغرباء أو إضافة أعضاء (PEER_FLOOD)',
-          details: {
-            ...details,
-            isRestricted: true,
-            restrictionReason: 'تم تقييد الحساب من مراسلة من لا يملك رقم هاتفك',
-          },
-        };
-      }
+      if (channelId && channelAccessHash) {
+        const channel = new Api.InputChannel({
+          channelId: BigInt(channelId),
+          accessHash: BigInt(channelAccessHash),
+        });
 
-      // USER_BANNED_IN_CHANNEL = restricted from writing
-      if (errStr.includes('USER_BANNED_IN_CHANNEL') || errStr.includes('CHAT_WRITE_FORBIDDEN')) {
-        await client.disconnect();
-        return {
-          ok: true,
-          isBanned: true,
-          banType: 'spam_restricted',
-          reason: '🟠 تقييد كتابة — محظور من الإرسال للقنوات/المجموعات',
-          details: { ...details, isRestricted: true },
-        };
-      }
+        // 2. Try to invite @BotFather (ID: 93372553) to the channel
+        try {
+          await client.invoke(new Api.channels.InviteToChannel({
+            channel,
+            users: [new Api.InputUser({ userId: BigInt(93372553), accessHash: BigInt(0) })],
+          }));
 
-      // If we can't message @BotFather but no specific error, still suspicious
-      if (!errStr.includes('BOT_BLOCKED') && !errStr.includes('USER_IS_BLOCKED')) {
-        details.isRestricted = true;
-        details.restrictionReason = 'لا يمكن مراسلة الغرباء: ' + errStr.substring(0, 60);
+          // Success! Account CAN invite → NOT restricted
+          details.canWriteToStranger = true;
+          details.canAddToGroups = true;
+          details.isRestricted = false;
+        } catch (e: any) {
+          const errStr = (e.message || String(e)).toUpperCase();
+
+          // PEER_FLOOD = definitive spam restriction
+          if (errStr.includes('PEER_FLOOD') || errStr.includes('PEERFLOOD')) {
+            // Delete temp channel
+            try { await client.invoke(new Api.channels.DeleteChannel({ channel })); } catch {}
+
+            await client.disconnect();
+            return {
+              ok: true,
+              isBanned: true,
+              banType: 'spam_restricted',
+              reason: '🟠 تقييد سبام — لا يمكن إضافة أعضاء للمجموعات (PEER_FLOOD)',
+              details: {
+                ...details,
+                isRestricted: true,
+                canWriteToStranger: false,
+                canAddToGroups: false,
+                restrictionReason: 'تم تقييد الحساب من إضافة الأعضاء للمجموعات والقنوات',
+              },
+            };
+          }
+
+          // Other errors (USER_ALREADY_PARTICIPANT, BOT_PRIVACY, etc.) = NOT restricted
+          // These errors mean the API call worked, just the specific action failed
+          details.canWriteToStranger = true;
+          details.canAddToGroups = true;
+          details.isRestricted = false;
+        }
+
+        // 3. Delete the temporary channel
+        try { await client.invoke(new Api.channels.DeleteChannel({ channel })); } catch {}
       } else {
-        // Bot blocked by user — not a restriction, just normal
-        details.canWriteToStranger = true;
-        details.canAddToGroups = true;
-        details.isRestricted = false;
+        // Couldn't create channel — skip this check
+        details.canWriteToStranger = undefined;
+        details.canAddToGroups = undefined;
       }
+    } catch {
+      // Channel creation failed — skip this check
     }
 
     // ═══ CHECK 4: Check recent FloodWait history in DB ═══
