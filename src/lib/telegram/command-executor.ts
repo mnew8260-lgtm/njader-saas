@@ -3872,6 +3872,18 @@ export async function executeCommand(opts: {
     },
   }).catch(() => {});
 
+  // ═══ AUTO BAN DETECTION ═══
+  // If the command failed with PEER_FLOOD, mark the account as banned
+  if (!ok && accountId) {
+    const errUpper = (error || '').toUpperCase() + (output || '').toUpperCase();
+    if (errUpper.includes('PEER_FLOOD') || errUpper.includes('PEERFLOOD')) {
+      await db.telegramAccount.update({
+        where: { id: accountId },
+        data: { status: 'banned' },
+      }).catch(() => {});
+    }
+  }
+
   // If scraping/filter command succeeded, save the result as downloadable file
   let exportId: string | undefined;
   if (ok && SCRAPING_COMMANDS.has(commandId)) {

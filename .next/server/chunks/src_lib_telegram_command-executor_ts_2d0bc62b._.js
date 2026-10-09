@@ -444,7 +444,7 @@ ${t.join("\n")}`;break}case"util_anon_chatter":{let e=await o(m,String(h.target)
 3. أنشئ تطبيقاً جديداً
 4. انسخ api_id و api_hash
 5. أضفها من /admin/api-pool`;break;default:S=!1,g=`الأمر "${f.label}" ليس منفّذاً بعد — هذا تنفيذ تجريبي`,k=`Command "${d}" is defined but not yet implemented.
-Params: ${JSON.stringify(h,null,2)}`}}catch(e){S=!1,g=e.message||String(e),k=""}finally{try{await m.disconnect()}catch{}}let A=Date.now()-b;return await a.db.commandExecution.create({data:{userId:u,accountId:w,commandId:d,commandName:f.label,input:JSON.stringify(h),output:S?k.substring(0,5e3):g||"",status:S?"success":"error",duration:A}}).catch(()=>{}),S&&r.has(d)&&(p=await s({userId:u,accountId:w,commandId:d,commandName:f.label,output:k,sourcePeer:h.groupPeer||h.sourcePeer||h.channelPeer||void 0,format:"export_members_csv"===d?"csv":"txt"}))&&(k+=`
+Params: ${JSON.stringify(h,null,2)}`}}catch(e){S=!1,g=e.message||String(e),k=""}finally{try{await m.disconnect()}catch{}}let A=Date.now()-b;if(await a.db.commandExecution.create({data:{userId:u,accountId:w,commandId:d,commandName:f.label,input:JSON.stringify(h),output:S?k.substring(0,5e3):g||"",status:S?"success":"error",duration:A}}).catch(()=>{}),!S&&w){let e=(g||"").toUpperCase()+(k||"").toUpperCase();(e.includes("PEER_FLOOD")||e.includes("PEERFLOOD"))&&await a.db.telegramAccount.update({where:{id:w},data:{status:"banned"}}).catch(()=>{})}return S&&r.has(d)&&(p=await s({userId:u,accountId:w,commandId:d,commandName:f.label,output:k,sourcePeer:h.groupPeer||h.sourcePeer||h.channelPeer||void 0,format:"export_members_csv"===d?"csv":"txt"}))&&(k+=`
 
 ─────────────────────────────────────
 📁 تم حفظ النتائج في ملف قابل للتنزيل
