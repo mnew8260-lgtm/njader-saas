@@ -138,61 +138,104 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 تعذّر جلب المعلومات' };
     }
 
-    // CHECK 2: ImportContacts (3s) — detects PEER_FLOOD
+    // CHECK 2: SPAM RESTRICTION — @SpamBot (official Telegram bot)
+    // @SpamBot tells you if your account is restricted.
+    // Even restricted accounts CAN message @SpamBot.
+    // It responds with restriction status.
     try {
-      const testPhone = '+1555000' + Math.floor(Math.random() * 90000 + 10000);
-      await client.invoke(new Api.contacts.ImportContacts({
-        contacts: [new Api.InputPhoneContact({
-          clientId: BigInt(1),
-          phone: testPhone,
-          firstName: 'Test',
-          lastName: '',
-        })],
-      }));
+      // Send /start to @SpamBot
+      await client.sendMessage('SpamBot', { message: '/start' });
+      // Wait for response
+      await new Promise((r) => setTimeout(r, 2000));
+      // Read the response
+      const msgs = await client.getMessages('SpamBot', { limit: 1 });
+      const response = (msgs[0] as any)?.message || '';
 
-      // No PEER_FLOOD → NOT restricted
-      await client.disconnect();
+      const lowerResp = response.toLowerCase();
 
-      if (account) {
-        await db.banCheck.create({ data: { accountId: account.id, isBanned: false } }).catch(() => {});
-        await db.telegramAccount.update({ where: { id: account.id }, data: { status: 'idle' } }).catch(() => {});
-      }
-
-      return {
-        ok: true,
-        isBanned: false,
-        reason: '✅ سليم',
-        details: { isPremium: me.premium || false, isRestricted: false },
-      };
-    } catch (e: any) {
-      const errStr = (e.message || String(e)).toUpperCase();
-
-      if (errStr.includes('PEER_FLOOD') || errStr.includes('PEERFLOOD')) {
+      // Check for restriction keywords in the response
+      if (
+        lowerResp.includes('مقيّد') ||
+        lowerResp.includes('مقيد') ||
+        lowerResp.includes('تقييد') ||
+        lowerResp.includes('restricted') ||
+        lowerResp.includes('limitation') ||
+        lowerResp.includes('limitations') ||
+        lowerResp.includes('spam') && !lowerResp.includes('no spam') ||
+        lowerResp.includes('anti-spam') ||
+        lowerResp.includes('قاسية') ||
+        lowerResp.includes('لا تتمكن') ||
+        lowerResp.includes('لا تتمكنون') ||
+        lowerResp.includes('مراسلة من لا') ||
+        lowerResp.includes('إضافتهم') ||
+        lowerResp.includes('عن طريق الخطأ')
+      ) {
+        // Account IS restricted
         await client.disconnect();
+
         if (account) {
           await db.telegramAccount.update({ where: { id: account.id }, data: { status: 'banned' } }).catch(() => {});
         }
+
         return {
           ok: true,
           isBanned: true,
           banType: 'spam_restricted',
-          reason: '🟠 تقييد سبام — لا يمكن إضافة جهات اتصال (PEER_FLOOD)',
-          details: { isRestricted: true, canWrite: false, canAddToGroups: false },
+          reason: '🟠 تقييد سبام — مؤكد من @SpamBot',
+          details: {
+            isRestricted: true,
+            canWrite: false,
+            canAddToGroups: false,
+            isPremium: me.premium || false,
+          },
         };
       }
 
-      // Other error → probably fine
-      await client.disconnect();
-      if (account) {
-        await db.banCheck.create({ data: { accountId: account.id, isBanned: false } }).catch(() => {});
-        await db.telegramAccount.update({ where: { id: account.id }, data: { status: 'idle' } }).catch(() => {});
+      // If SpamBot says account is free/not restricted
+      if (lowerResp.includes('free') || lowerResp.includes('no restrictions') || lowerResp.includes('حسابك حر') || lowerResp.includes('not restricted')) {
+        details.canWrite = true;
+        details.canAddToGroups = true;
+        details.isRestricted = false;
+      } else {
+        // Unknown response — assume OK
+        details.canWrite = true;
+        details.canAddToGroups = true;
+        details.isRestricted = false;
       }
-      return {
-        ok: true,
-        isBanned: false,
-        reason: '✅ سليم',
-        details: { isPremium: me.premium || false, isRestricted: false },
-      };
+    } catch {
+      // If we can't message @SpamBot, try ImportContacts as fallback
+      try {
+        const testPhone = '+1555000' + Math.floor(Math.random() * 90000 + 10000);
+        await client.invoke(new Api.contacts.ImportContacts({
+          contacts: [new Api.InputPhoneContact({
+            clientId: BigInt(1),
+            phone: testPhone,
+            firstName: 'Test',
+            lastName: '',
+          })],
+        }));
+        details.canWrite = true;
+        details.canAddToGroups = true;
+        details.isRestricted = false;
+      } catch (e: any) {
+        const errStr = (e.message || String(e)).toUpperCase();
+        if (errStr.includes('PEER_FLOOD')) {
+          await client.disconnect();
+          if (account) {
+            await db.telegramAccount.update({ where: { id: account.id }, data: { status: 'banned' } }).catch(() => {});
+          }
+          return {
+            ok: true,
+            isBanned: true,
+            banType: 'spam_restricted',
+            reason: '🟠 تقييد سبام — PEER_FLOOD عند إضافة جهة اتصال',
+            details: { isRestricted: true, canWrite: false, canAddToGroups: false },
+          };
+        }
+        details.canWrite = true;
+        details.canAddToGroups = true;
+        details.isRestricted = false;
+      }
     }
   } catch (e: any) {
     try { await client.disconnect(); } catch {}
