@@ -1,14 +1,11 @@
 /**
- * lib/telegram/ban-checker.ts — Deep ban check for Telegram accounts
+ * lib/telegram/ban-checker.ts — Fast & accurate ban check
  * =========================================================================
- * Performs multiple checks to detect ALL types of bans/limits:
- * 1. getMe() — detects fully deactivated accounts
- * 2. getDialogs() — detects accounts that can't read messages
- * 3. sendMessage to Saved Messages — detects writing bans
- * 4. GetAuthorizations — detects session-specific bans
- * 5. Check FloodWait history — detects recent flood limits
- * 6. Try resolveUsername — detects search/contact restrictions
- * 7. Try getParticipants — detects group interaction bans
+ * Priority order (most important checks FIRST to fit Vercel 10s limit):
+ * 1. Connection + getMe — detects deactivated/auth failures
+ * 2. GROUP INVITE TEST — detects spam restriction (PEER_FLOOD)
+ * 3. sendMessage('me') — detects write bans
+ * 4. DB FloodWait history — detects recent limits (fast, no API call)
  */
 
 import { TelegramClient, Api } from 'telegram';
@@ -18,7 +15,7 @@ import { makeClient } from '@/lib/telegram/client';
 export interface BanCheckResult {
   ok: boolean;
   isBanned: boolean;
-  banType?: 'deactivated' | 'auth_failed' | 'write_banned' | 'flood_ban' | 'limited' | 'spam_ban' | 'read_banned' | 'session_invalid' | 'restricted' | 'spam_restricted';
+  banType?: string;
   reason?: string;
   limitedUntil?: Date;
   details?: {
@@ -38,28 +35,16 @@ export interface BanCheckResult {
   };
 }
 
-/**
- * Deep ban check — performs multiple operations to detect all ban types.
- */
 export async function checkBan(phone: string): Promise<BanCheckResult> {
   return quickCheckBan(phone);
 }
 
-/**
- * Quick ban check — the most reliable checks within Vercel's 10s limit.
- * Key checks:
- * 1. Connection (detects auth failures)
- * 2. getMe (detects deactivated accounts)
- * 3. sendMessage('me') (detects write bans, flood, spam)
- * 4. resolveUsername (detects contact/search restrictions)
- * 5. Recent FloodWait history (detects ongoing limits)
- */
 export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
   let client: TelegramClient;
   try {
     const connectPromise = makeClient(phone);
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('CONNECTION_TIMEOUT')), 7000)
+      setTimeout(() => reject(new Error('CONNECTION_TIMEOUT')), 6000)
     );
     ({ client } = await Promise.race([connectPromise, timeoutPromise]));
   } catch (e: any) {
@@ -79,7 +64,7 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
   const details: BanCheckResult['details'] = {};
 
   try {
-    // ═══ CHECK 1: getMe — detects deactivated accounts ═══
+    // ═══ CHECK 1: getMe — quick, detects deactivated accounts ═══
     let me: any = null;
     try {
       me = await client.getMe();
@@ -101,72 +86,11 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       return { ok: true, isBanned: true, banType: 'deactivated', reason: '🚫 تعذّر جلب معلومات الحساب', details };
     }
 
-    // Check if account has restriction flag
-    if (me.restricted) {
-      details.restrictionReason = me.restrictionReason?.plainText || 'مقيد';
-    }
-
-    // ═══ CHECK 2: sendMessage to Saved Messages (THE KEY CHECK) ═══
+    // ═══ CHECK 2: SPAM RESTRICTION — GROUP INVITE TEST (THE KEY CHECK) ═══
+    // This is the MOST IMPORTANT check — do it FIRST after getMe
+    // Telegram says: "لا إضافتهم إلى المجموعات والقنوات"
+    // So we create a temp channel + try to invite → PEER_FLOOD = restricted
     try {
-      const testResult = await client.sendMessage('me', {
-        message: 'njadder_check_' + Date.now(),
-        silent: true,
-      });
-      details.canWrite = true;
-      if (testResult && (testResult as any).id) {
-        try { await client.deleteMessages('me', [(testResult as any).id], { revoke: true }); } catch {}
-      }
-    } catch (e: any) {
-      const errStr = e.message || String(e);
-      details.canWrite = false;
-      await client.disconnect();
-
-      if (errStr.includes('PEER_FLOOD')) {
-        return { ok: true, isBanned: true, banType: 'flood_ban', reason: '🌊 حظر فيض (Peer Flood) — لا يستطيع الإرسال', details };
-      }
-      if (errStr.includes('USER_BANNED_IN_CHANNEL') || errStr.includes('CHAT_WRITE_FORBIDDEN')) {
-        return { ok: true, isBanned: true, banType: 'write_banned', reason: '📝 محظور من الكتابة', details };
-      }
-      if (errStr.includes('FLOOD_WAIT')) {
-        const match = errStr.match(/(\d+)/);
-        const sec = match ? parseInt(match[1], 10) : 60;
-        return { ok: true, isBanned: true, banType: 'limited', reason: '⏱️ FloodWait ' + sec + 's', limitedUntil: new Date(Date.now() + sec * 1000), details: { ...details, floodWaitSeconds: sec } };
-      }
-      if (errStr.includes('SPAMMER') || errStr.includes('SPAM')) {
-        return { ok: true, isBanned: true, banType: 'spam_ban', reason: '🚫 مُصنّف كسبام', details };
-      }
-      // Can't write to self → likely banned
-      return { ok: true, isBanned: true, banType: 'write_banned', reason: '📝 لا يستطيع الكتابة: ' + errStr.substring(0, 50), details };
-    }
-
-    // ═══ CHECK 3: resolveUsername — detects contact/search restrictions ═══
-    try {
-      await client.invoke(new Api.contacts.ResolveUsername({ username: 'telegram' }));
-      details.canResolve = true;
-    } catch (e: any) {
-      const errStr = e.message || String(e);
-      details.canResolve = false;
-      if (errStr.includes('FLOOD_WAIT')) {
-        const match = errStr.match(/(\d+)/);
-        const sec = match ? parseInt(match[1], 10) : 60;
-        await client.disconnect();
-        return { ok: true, isBanned: true, banType: 'limited', reason: '⏱️ FloodWait عند البحث: ' + sec + 's', limitedUntil: new Date(Date.now() + sec * 1000), details: { ...details, floodWaitSeconds: sec } };
-      }
-      if (errStr.includes('USER_PRIVACY') || errStr.includes('PEER_ID_INVALID')) {
-        details.canInteract = false;
-      }
-    }
-
-    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — GROUP INVITE TEST ═══
-    // The DEFINITIVE test for spam restriction:
-    // Telegram says: "قد لا تتمكنون من... إضافتهم إلى المجموعات والقنوات"
-    // So we try to invite @BotFather to a channel → if PEER_FLOOD = restricted
-    //
-    // NOTE: messaging @BotFather directly DOES NOT work as a test because
-    // bots are EXEMPT from the "can't message strangers" restriction.
-    // Only inviting to groups/channels triggers PEER_FLOOD for restricted accounts.
-    try {
-      // 1. Create a temporary channel for testing
       const createResult = await client.invoke(new Api.channels.CreateChannel({
         title: 'njadder_check_' + Date.now(),
         about: 'temp',
@@ -182,21 +106,20 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           accessHash: BigInt(channelAccessHash),
         });
 
-        // 2. Try to invite @BotFather (ID: 93372553) to the channel
         try {
+          // Try to invite @BotFather (ID: 93372553) to the channel
           await client.invoke(new Api.channels.InviteToChannel({
             channel,
             users: [new Api.InputUser({ userId: BigInt(93372553), accessHash: BigInt(0) })],
           }));
 
           // Success! Account CAN invite → NOT restricted
-          details.canWriteToStranger = true;
           details.canAddToGroups = true;
+          details.canWriteToStranger = true;
           details.isRestricted = false;
         } catch (e: any) {
           const errStr = (e.message || String(e)).toUpperCase();
 
-          // PEER_FLOOD = definitive spam restriction
           if (errStr.includes('PEER_FLOOD') || errStr.includes('PEERFLOOD')) {
             // Delete temp channel
             try { await client.invoke(new Api.channels.DeleteChannel({ channel })); } catch {}
@@ -218,24 +141,48 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           }
 
           // Other errors (USER_ALREADY_PARTICIPANT, BOT_PRIVACY, etc.) = NOT restricted
-          // These errors mean the API call worked, just the specific action failed
-          details.canWriteToStranger = true;
           details.canAddToGroups = true;
+          details.canWriteToStranger = true;
           details.isRestricted = false;
         }
 
-        // 3. Delete the temporary channel
+        // Delete the temporary channel
         try { await client.invoke(new Api.channels.DeleteChannel({ channel })); } catch {}
-      } else {
-        // Couldn't create channel — skip this check
-        details.canWriteToStranger = undefined;
-        details.canAddToGroups = undefined;
       }
     } catch {
-      // Channel creation failed — skip this check
+      // Channel creation failed — skip
     }
 
-    // ═══ CHECK 4: Check recent FloodWait history in DB ═══
+    // ═══ CHECK 3: sendMessage('me') — detects write bans ═══
+    try {
+      const testResult = await client.sendMessage('me', {
+        message: 'njadder_check_' + Date.now(),
+        silent: true,
+      });
+      details.canWrite = true;
+      if (testResult && (testResult as any).id) {
+        try { await client.deleteMessages('me', [(testResult as any).id], { revoke: true }); } catch {}
+      }
+    } catch (e: any) {
+      const errStr = e.message || String(e);
+      details.canWrite = false;
+      await client.disconnect();
+
+      if (errStr.includes('PEER_FLOOD')) {
+        return { ok: true, isBanned: true, banType: 'spam_restricted', reason: '🟠 تقييد سبام (PEER_FLOOD)', details: { ...details, isRestricted: true, canAddToGroups: false } };
+      }
+      if (errStr.includes('FLOOD_WAIT')) {
+        const match = errStr.match(/(\d+)/);
+        const sec = match ? parseInt(match[1], 10) : 60;
+        return { ok: true, isBanned: true, banType: 'limited', reason: '⏱️ FloodWait ' + sec + 's', limitedUntil: new Date(Date.now() + sec * 1000), details: { ...details, floodWaitSeconds: sec } };
+      }
+      if (errStr.includes('SPAMMER') || errStr.includes('SPAM')) {
+        return { ok: true, isBanned: true, banType: 'spam_ban', reason: '🚫 مُصنّف كسبام', details };
+      }
+      return { ok: true, isBanned: true, banType: 'write_banned', reason: '📝 لا يستطيع الكتابة: ' + errStr.substring(0, 50), details };
+    }
+
+    // ═══ CHECK 4: DB FloodWait history (fast, no API call) ═══
     const accountId = (await db.telegramAccount.findUnique({ where: { phone } }))?.id;
     if (accountId) {
       const recentErrors = await db.commandExecution.findMany({
@@ -246,19 +193,17 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
         },
         orderBy: { executedAt: 'desc' },
         take: 50,
-        select: { output: true, commandName: true, executedAt: true },
+        select: { output: true },
       });
 
       const floodErrors = recentErrors.filter((e) =>
         (e.output || '').includes('FLOOD') ||
         (e.output || '').includes('FloodWait') ||
         (e.output || '').includes('PEER_FLOOD') ||
-        (e.output || '').includes('PeerFlood') ||
-        (e.output || '').includes('peer flood')
+        (e.output || '').includes('PeerFlood')
       );
       details.recentFloodWaits = floodErrors.length;
 
-      // Check for PEER_FLOOD specifically — this means spam restriction
       const peerFloodErrors = recentErrors.filter((e) =>
         (e.output || '').includes('PEER_FLOOD') ||
         (e.output || '').includes('PeerFlood')
@@ -270,14 +215,8 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           ok: true,
           isBanned: true,
           banType: 'spam_restricted',
-          reason: '⚠️ تقييد سبام (PEER_FLOOD) — الحساب مُقيّد من مراسلة الغرباء',
-          details: {
-            ...details,
-            isRestricted: true,
-            canWriteToStranger: false,
-            canAddToGroups: false,
-            restrictionReason: 'PEER_FLOOD في آخر 24 ساعة',
-          },
+          reason: '🟠 تقييد سبام (PEER_FLOOD في التاريخ) — مُقيّد من إضافة الأعضاء',
+          details: { ...details, isRestricted: true, canAddToGroups: false, canWriteToStranger: false },
         };
       }
 
@@ -287,7 +226,7 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           ok: true,
           isBanned: true,
           banType: 'limited',
-          reason: `⏱️ ${floodErrors.length} أخطاء FloodWait في آخر 24 ساعة — الحساب محدود جداً`,
+          reason: `⏱️ ${floodErrors.length} أخطاء FloodWait في آخر 24 ساعة — محدود جداً`,
           details: { ...details, floodWaitSeconds: 300 },
         };
       }
@@ -298,45 +237,30 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           ok: true,
           isBanned: true,
           banType: 'limited',
-          reason: `⏱️ خطأ FloodWait واحد في آخر 24 ساعة — الحساب محدود مؤقتاً`,
+          reason: `⏱️ خطأ FloodWait في آخر 24 ساعة — محدود مؤقتاً`,
           details: { ...details, floodWaitSeconds: 60 },
         };
       }
     }
 
-    // ═══ CHECK 5: GetAuthorizations — session count ═══
-    try {
-      const auths = await client.invoke(new Api.account.GetAuthorizations({}));
-      details.sessionsCount = auths?.authorizations?.length || 0;
-    } catch {}
-
     // ═══ ALL CHECKS PASSED ═══
     await client.disconnect();
 
-    // Save healthy result
     if (accountId) {
       await db.banCheck.create({ data: { accountId, isBanned: false } }).catch(() => {});
       await db.telegramAccount.update({ where: { id: accountId }, data: { status: 'idle' } }).catch(() => {});
     }
-
-    // Build health summary
-    const healthScore = [
-      details.canWrite !== false,
-      details.canResolve !== false,
-      (details.recentFloodWaits || 0) === 0,
-      !details.restrictionReason,
-    ].filter(Boolean).length;
 
     return {
       ok: true,
       isBanned: false,
       details: {
         ...details,
-        canInteract: details.canResolve !== false,
+        canInteract: details.canAddToGroups !== false,
       },
-      reason: healthScore === 4
-        ? '✅ سليم تماماً — يمكن الكتابة + البحث + لا FloodWait'
-        : `⚠️ محدود (${healthScore}/4) — ${details.canWrite === false ? 'لا يكتب ' : ''}${details.recentFloodWaits ? `FloodWait: ${details.recentFloodWaits}` : ''}`,
+      reason: details.isRestricted === false
+        ? '✅ سليم تماماً — يمكن الكتابة + إضافة أعضاء + لا FloodWait'
+        : '✅ سليم',
     };
   } catch (e: any) {
     try { await client.disconnect(); } catch {}
@@ -344,9 +268,6 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
   }
 }
 
-/**
- * Run ban check on all accounts of a user.
- */
 export async function checkAllUserAccounts(userId: string, isOwner: boolean = false) {
   const where = isOwner
     ? { sessionString: { not: null } }
