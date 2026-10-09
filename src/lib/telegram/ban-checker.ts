@@ -68,17 +68,22 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
 
     const details: any = { isPremium: me.premium || false };
 
-    // CHECK 2: SPAM RESTRICTION — try messaging @durov (REAL USER, not bot)
-    // @durov is Telegram's founder — a real user account.
-    // If account is spam-restricted → PEER_FLOOD
-    // If account is fine → success or USER_PRIVACY error (both = NOT restricted)
+    // CHECK 2: SPAM RESTRICTION — ImportContacts test
+    // When a spam-restricted account tries to import a stranger's phone as contact,
+    // Telegram returns PEER_FLOOD. This is the safest test — no message sent.
     try {
-      await client.sendMessage('durov', {
-        message: 'hi',
-        silent: true,
-      });
+      // Use a random phone number that's definitely not in contacts
+      const testPhone = '+1555000' + Math.floor(Math.random() * 90000 + 10000);
+      const importResult = await client.invoke(new Api.contacts.ImportContacts({
+        contacts: [new Api.InputPhoneContact({
+          clientId: BigInt(1),
+          phone: testPhone,
+          firstName: 'Test',
+          lastName: '',
+        })],
+      })) as any;
 
-      // Success! Can message strangers → NOT restricted
+      // If we get here without PEER_FLOOD, account is NOT restricted
       details.canWrite = true;
       details.canAddToGroups = true;
       details.isRestricted = false;
@@ -89,7 +94,6 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
         // DEFINITIVE: account is spam-restricted
         await client.disconnect();
 
-        // Also check DB history
         const accountId = (await db.telegramAccount.findUnique({ where: { phone } }))?.id;
         if (accountId) {
           await db.telegramAccount.update({ where: { id: accountId }, data: { status: 'banned' } }).catch(() => {});
@@ -99,7 +103,7 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           ok: true,
           isBanned: true,
           banType: 'spam_restricted',
-          reason: '🟠 تقييد سبام — لا يمكن مراسلة الغرباء (PEER_FLOOD)',
+          reason: '🟠 تقييد سبام — لا يمكن إضافة جهات اتصال (PEER_FLOOD)',
           details: {
             ...details,
             isRestricted: true,
@@ -109,8 +113,7 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
         };
       }
 
-      // Any OTHER error (USER_PRIVACY, etc.) = account CAN reach strangers
-      // The restriction only returns PEER_FLOOD
+      // Other errors = probably fine
       details.canWrite = true;
       details.canAddToGroups = true;
       details.isRestricted = false;
