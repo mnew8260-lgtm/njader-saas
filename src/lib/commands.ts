@@ -1118,6 +1118,148 @@ export const COMMANDS: CommandDef[] = [
     ],
     requiresAccount: false, badge: 'NEW',
   },
+
+  // ═════════════════════════════════════════════════════════════
+  // v41 NEW FEATURES — من كود Python v1.2.1
+  // ═════════════════════════════════════════════════════════════
+
+  // ── Hide Last Seen ──
+  {
+    id: 'acc_hide_last_seen', num: '14', name: 'hideLastSeen',
+    label: '🙈 إخفاء آخر ظهور',
+    description: 'إخفاء آخر ظهور لكل الحسابات (Nobody)',
+    category: 'privacy', icon: '🙈',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Hide Phone Number ──
+  {
+    id: 'acc_hide_phone', num: '15', name: 'hidePhoneNumber',
+    label: '📱 إخفاء رقم الهاتف',
+    description: 'إخفاء رقم الهاتف لكل الحسابات (Nobody)',
+    category: 'privacy', icon: '📱',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Reaction Increaser ──
+  {
+    id: 'eng_reaction_increaser', num: '16', name: 'reactionIncreaser',
+    label: '❤️ boosted تفاعلات',
+    description: 'إرسال react لمنشور من كل الحسابات',
+    category: 'engagement', icon: '❤️',
+    params: [
+      { name: 'target', label: 'القناة/القروب', type: 'text', required: true },
+      { name: 'msgId', label: 'معرف المنشور', type: 'number', required: true },
+      { name: 'reaction', label: 'الإيموجي', type: 'text', required: false, defaultValue: '👍' },
+    ],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Shares Increaser ──
+  {
+    id: 'eng_shares_increaser', num: '17', name: 'sharesIncreaser',
+    label: '🔁 boosted مشاركات',
+    description: 'توجيه المنشور لـ Saved Messages من كل الحسابات (زيادة المشاركات)',
+    category: 'engagement', icon: '🔁',
+    params: [
+      { name: 'target', label: 'القناة', type: 'text', required: true },
+      { name: 'msgId', label: 'معرف المنشور', type: 'number', required: true },
+    ],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Auto ID Cloner ──
+  {
+    id: 'acc_auto_id_cloner', num: '18', name: 'autoIdCloner',
+    label: '🧬 مستنسخ الملفات',
+    description: 'استنساخ الاسم والنبذة من مستخدم آخر',
+    category: 'profile', icon: '🧬',
+    params: [
+      { name: 'cloneTarget', label: '@username أو ID المستهدف', type: 'text', required: true },
+    ],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Recover Restricted (@SpamBot complaint) ──
+  {
+    id: 'acc_recover_restricted', num: '19', name: 'recoverRestricted',
+    label: '🔧 رفع التقييد (@SpamBot)',
+    description: 'محادثة @SpamBot تلقائياً + إرسال شكوى لرفع التقييد',
+    category: 'account', icon: '🔧',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Permanent Limit Remover ──
+  {
+    id: 'acc_permanent_limit', num: '20', name: 'permanentLimitRemover',
+    label: '💪 حاذف القيود الدائم',
+    description: 'محاولة قوية لرفع القيود الدائمة عبر @SpamBot',
+    category: 'account', icon: '💪',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── View Restricted Accounts ──
+  {
+    id: 'acc_view_restricted', num: '21', name: 'viewRestricted',
+    label: '👁️ عرض المقيّدين',
+    description: 'عرض كل الحسابات المقيّدة (من DB)',
+    category: 'account', icon: '👁️',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Ban Filter v41 (smart classification) ──
+  {
+    id: 'acc_ban_filter_v41', num: '22', name: 'banFilterV41',
+    label: '🛡️ فلتر ذكي v41',
+    description: 'تصنيف ذكي: valid/banned/frozen/restricted/network_err',
+    category: 'account', icon: '🛡️',
+    params: [
+      { name: 'checkSpambot', label: 'فحص @SpamBot أيضاً (أبطأ)', type: 'checkbox', required: false, defaultValue: false },
+    ],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Account Info v41 (with flags) ──
+  {
+    id: 'acc_info_v41', num: '23', name: 'accountInfoV41',
+    label: 'ℹ️ معلومات v41 (flags)',
+    description: 'معلومات تفصيلية: verified/scam/fake/premium/support',
+    category: 'account', icon: 'ℹ️',
+    params: [],
+    requiresAccount: true, badge: 'NEW',
+  },
+
+  // ── Add to Contact by Group (ResolvePhone) ──
+  {
+    id: 'add_contact_by_group', num: '24', name: 'addToContactByGroup',
+    label: '📇➡👤 سحب + جهات اتصال (Phone)',
+    description: 'سحب أعضاء قروب + إضافتهم كجهات اتصال عبر أرقام الهواتف',
+    category: 'op3', icon: '📇',
+    params: [
+      { name: 'source', label: 'القروب المصدر', type: 'text', required: true },
+      { name: 'maxPer', label: 'حد أقصى', type: 'number', required: false, defaultValue: 50 },
+    ],
+    requiresAccount: true, danger: 'medium', badge: 'NEW',
+  },
+
+  // ── Add to Contact by Import (VCF → group) ──
+  {
+    id: 'add_contact_by_imp', num: '25', name: 'addToContactByImp',
+    label: '📇➡👥 VCF → جهات + قروب',
+    description: 'استيراد VCF كجهات اتصال + إضافتهم لقروب هدف',
+    category: 'op3', icon: '📇',
+    params: [
+      { name: 'target', label: 'القروب الهدف', type: 'text', required: true },
+      { name: 'vcfContent', label: 'محتوى VCF', type: 'textarea', required: true },
+      { name: 'maxPer', label: 'حد أقصى', type: 'number', required: false, defaultValue: 50 },
+    ],
+    requiresAccount: true, danger: 'high', badge: 'NEW',
+  },
 ];
 
 export function getCommandsByCategory(category: CommandCategory): CommandDef[] {
