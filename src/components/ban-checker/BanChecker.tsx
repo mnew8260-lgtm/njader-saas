@@ -46,17 +46,23 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
         body: JSON.stringify({ phone }),
       });
 
-      // Handle non-JSON responses
+      // Handle non-JSON responses (Vercel timeout returns HTML)
       const text = await res.text();
       let data;
-      try { data = JSON.parse(text); }
-      catch { data = { ok: false, error: 'Vercel timeout — حاول مرة أخرى' }; }
-
-      if (data.ok) {
-        setResults({ ...results, [phone]: data });
-      } else {
-        setResults({ ...results, [phone]: { ok: false, phone, error: data.error || data.message || 'فشل' } });
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Vercel timeout — treat as potentially banned/restricted
+        data = {
+          ok: true,
+          phone,
+          isBanned: true,
+          banType: 'session_invalid',
+          reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
+        };
       }
+
+      setResults({ ...results, [phone]: data });
     } catch (e: any) {
       setResults({ ...results, [phone]: {
         ok: true, phone, isBanned: true,
@@ -73,7 +79,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
     setError(null);
     const newResults: Record<string, CheckResult> = {};
 
-    // Check each account ONE BY ONE (each in separate API call)
+    // Check each account ONE BY ONE
     for (const account of accounts) {
       setCheckingPhone(account.phone);
       try {
@@ -89,24 +95,23 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
         try {
           data = JSON.parse(text);
         } catch {
-          data = { ok: false, error: 'Vercel timeout — حاول مرة أخرى' };
-        }
-
-        if (data.ok) {
-          newResults[account.phone] = data;
-        } else {
-          newResults[account.phone] = { ok: false, phone: account.phone, error: data.error || data.message || 'فشل' };
-        }
-      } catch (e: any) {
-        if (e.name === 'AbortError') {
-          newResults[account.phone] = {
-            ok: true, phone: account.phone, isBanned: true,
+          // Vercel timeout — treat as potentially banned/restricted
+          data = {
+            ok: true,
+            phone: account.phone,
+            isBanned: true,
             banType: 'session_invalid',
             reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
           };
-        } else {
-          newResults[account.phone] = { ok: false, phone: account.phone, error: e.message };
         }
+
+        newResults[account.phone] = data;
+      } catch (e: any) {
+        newResults[account.phone] = {
+          ok: true, phone: account.phone, isBanned: true,
+          banType: 'session_invalid',
+          reason: '⏱️ انتهى وقت الفحص — الحساب محظور أو الجلسة غير صالحة',
+        };
       }
       setResults({ ...newResults });
     }
