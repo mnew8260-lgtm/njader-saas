@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import {
-  Loader2, Play, Search, History, Terminal, ChevronLeft, ChevronRight, X,
+  Loader2, Play, Search, History, Terminal, ChevronLeft, ChevronRight, X, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +18,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { MultiAccountSelector } from '@/components/accounts/MultiAccountSelector';
 
 interface Account {
   id: string;
@@ -70,6 +71,8 @@ export function CommandRunner({
   const [search, setSearch] = useState('');
   const [selectedCommand, setSelectedCommand] = useState<CommandDef | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || '');
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>(accounts[0]?.id ? [accounts[0].id] : []);
+  const [multiMode, setMultiMode] = useState(false);
   const [params, setParams] = useState<Record<string, any>>({});
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState<string>('');
@@ -112,26 +115,54 @@ export function CommandRunner({
   };
 
   const runCommand = async () => {
-    if (!selectedCommand || !selectedAccountId) return;
+    if (!selectedCommand) return;
+    const useMulti = multiMode && selectedAccountIds.length > 1;
+    if (!useMulti && !selectedAccountId) return;
+    if (useMulti && selectedAccountIds.length === 0) return;
     setBusy(true);
     setOutput('');
     setError(null);
     try {
-      const res = await fetch('/api/commands/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: selectedAccountId,
-          commandId: selectedCommand.id,
-          params,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setOutput(data.output || '(no output)');
+      if (useMulti) {
+        // Multi-account: distribute work across selected accounts
+        const res = await fetch('/api/commands/execute-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountIds: selectedAccountIds,
+            commandId: selectedCommand.id,
+            params,
+            mode: 'parallel',
+          }),
+        });
+        const text = await res.text();
+        let data;
+        try { data = JSON.parse(text); }
+        catch { data = { ok: false, error: 'استجابة غير صالحة' }; }
+        if (data.ok !== false && data.mergedOutput) {
+          setOutput(data.mergedOutput);
+        } else {
+          setError(data.error || data.mergedOutput || 'فشل التنفيذ');
+          if (data.mergedOutput) setOutput(data.mergedOutput);
+        }
       } else {
-        setError(data.error || data.message || 'فشل تنفيذ الأمر');
-        if (data.output) setOutput(data.output);
+        // Single account
+        const res = await fetch('/api/commands/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accountId: multiMode ? selectedAccountIds[0] : selectedAccountId,
+            commandId: selectedCommand.id,
+            params,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          setOutput(data.output || '(no output)');
+        } else {
+          setError(data.error || data.message || 'فشل تنفيذ الأمر');
+          if (data.output) setOutput(data.output);
+        }
       }
       // Refresh history
       const h = await fetch('/api/commands/history?limit=20').then((r) => r.json());
@@ -159,14 +190,42 @@ export function CommandRunner({
 
   return (
     <div className="space-y-4">
+      {/* Multi-Account toggle */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setMultiMode(!multiMode)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition ${
+            multiMode
+              ? 'bg-purple-500/20 text-purple-700 dark:text-purple-400 border border-purple-500/30'
+              : 'bg-muted text-muted-foreground'
+          }`
+          }
+        >
+          <Users className="size-3.5" />
+          {multiMode ? '✓ Multi-Account مُفعّل' : 'تفعيل Multi-Account'}
+        </button>
+        {multiMode && selectedAccountIds.length > 1 && (
+          <Badge className="bg-purple-500/20 text-purple-700 dark:text-purple-400 gap-1">
+            ⚡ توزيع على {selectedAccountIds.length} حسابات
+          </Badge>
+        )}
+      </div>
+
       {/* Account selector */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">اختر الحساب</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-            <SelectTrigger>
+      {multiMode ? (
+        <MultiAccountSelector
+          accounts={accounts}
+          selectedIds={selectedAccountIds}
+          onChange={setSelectedAccountIds}
+        />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">اختر الحساب</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+              <SelectTrigger>
               <SelectValue placeholder="اختر حساباً..." />
             </SelectTrigger>
             <SelectContent>
@@ -179,6 +238,7 @@ export function CommandRunner({
           </Select>
         </CardContent>
       </Card>
+      )}
 
       {/* Commands grid */}
       <Card>
