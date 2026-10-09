@@ -163,8 +163,9 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
     // This detects the "مرحبًا! نعتذر... تم تقييد حسابكم" message.
     try {
       // Get recent messages from Telegram's official account (ID 777000)
+      // Read 20 messages (not just 5) — restriction message might be older
       const telegramEntity = await client.getInputEntity(777000);
-      const recentMsgs = await client.getMessages(telegramEntity, { limit: 5 });
+      const recentMsgs = await client.getMessages(telegramEntity, { limit: 20 });
 
       let isSpamRestricted = false;
       let restrictionText = '';
@@ -186,10 +187,17 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
           text.includes('لا تتمكنون') ||
           text.includes('مراسلة من لا') ||
           text.includes('إضافتهم إلى المجموعات') ||
-          text.includes('nعتذر')
+          text.includes('nعتذر') ||
+          text.includes('nعتذر بشدة') ||
+          text.includes('استجابة قاسية') ||
+          text.includes('نظام مكافحة') ||
+          text.includes('spam protection') ||
+          text.includes('you can\'t send messages') ||
+          text.includes('can\'t write to') ||
+          text.includes('cannot message')
         ) {
           isSpamRestricted = true;
-          restrictionText = msg.message?.substring(0, 150) || '';
+          restrictionText = msg.message?.substring(0, 200) || '';
           break;
         }
       }
@@ -236,9 +244,36 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       });
 
       const floodErrors = recentErrors.filter((e) =>
-        (e.output || '').includes('FLOOD') || (e.output || '').includes('FloodWait')
+        (e.output || '').includes('FLOOD') ||
+        (e.output || '').includes('FloodWait') ||
+        (e.output || '').includes('PEER_FLOOD') ||
+        (e.output || '').includes('PeerFlood') ||
+        (e.output || '').includes('peer flood')
       );
       details.recentFloodWaits = floodErrors.length;
+
+      // Check for PEER_FLOOD specifically — this means spam restriction
+      const peerFloodErrors = recentErrors.filter((e) =>
+        (e.output || '').includes('PEER_FLOOD') ||
+        (e.output || '').includes('PeerFlood')
+      );
+
+      if (peerFloodErrors.length > 0) {
+        await client.disconnect();
+        return {
+          ok: true,
+          isBanned: true,
+          banType: 'spam_restricted',
+          reason: '⚠️ تقييد سبام (PEER_FLOOD) — الحساب مُقيّد من مراسلة الغرباء',
+          details: {
+            ...details,
+            isRestricted: true,
+            canWriteToStranger: false,
+            canAddToGroups: false,
+            restrictionReason: 'PEER_FLOOD في آخر 24 ساعة',
+          },
+        };
+      }
 
       if (floodErrors.length >= 3) {
         await client.disconnect();
