@@ -170,11 +170,12 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
           // More nuanced status
           const isLimited = banType === 'limited' || banType === 'flood_ban';
           const isWriteBanned = banType === 'write_banned' || banType === 'spam_ban';
+          const isSpamRestricted = banType === 'spam_restricted';
           const statusLabel = isBanned
-            ? (isLimited ? 'محدود' : isWriteBanned ? 'محظور كتابة' : banType === 'deactivated' ? 'معطّل' : 'محظور')
+            ? (isSpamRestricted ? 'مقيّد سبام' : isLimited ? 'محدود' : isWriteBanned ? 'محظور كتابة' : banType === 'deactivated' ? 'معطّل' : 'محظور')
             : isHealthy ? 'سليم' : 'غير مفحوص';
           const statusColor = isBanned
-            ? (isLimited ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600')
+            ? (isSpamRestricted ? 'bg-orange-500 hover:bg-orange-600' : isLimited ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600')
             : isHealthy ? 'bg-emerald-500 hover:bg-emerald-600' : '';
 
           return (
@@ -184,11 +185,11 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <div className={`size-10 rounded-full grid place-items-center shrink-0 ${
                       isBanned
-                        ? (isLimited ? 'bg-amber-500/10' : 'bg-red-500/10')
+                        ? (isSpamRestricted ? 'bg-orange-500/10' : isLimited ? 'bg-amber-500/10' : 'bg-red-500/10')
                         : isHealthy ? 'bg-emerald-500/10' : 'bg-zinc-500/10'
                     }`}>
                       {isBanned
-                        ? (isLimited ? <AlertTriangle className="size-5 text-amber-500" /> : <ShieldAlert className="size-5 text-red-500" />)
+                        ? (isSpamRestricted ? <AlertTriangle className="size-5 text-orange-500" /> : isLimited ? <AlertTriangle className="size-5 text-amber-500" /> : <ShieldAlert className="size-5 text-red-500" />)
                         : isHealthy ? <CheckCircle2 className="size-5 text-emerald-500" />
                         : <AlertTriangle className="size-5 text-zinc-500" />}
                     </div>
@@ -198,7 +199,7 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
                       </p>
                       <p className="text-xs text-muted-foreground font-mono" dir="ltr">{a.phone}</p>
                       {reason && <p className="text-xs mt-0.5 ${
-                        isBanned ? (isLimited ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400') : 'text-muted-foreground'
+                        isBanned ? (isSpamRestricted ? 'text-orange-600 dark:text-orange-400' : isLimited ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400') : 'text-muted-foreground'
                       }">{reason}</p>}
                     </div>
                   </div>
@@ -233,6 +234,21 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
                     {details.recentFloodWaits !== undefined && (
                       <Badge variant="outline" className={`text-[10px] ${details.recentFloodWaits > 0 ? 'text-amber-600 border-amber-500/30' : 'text-emerald-600'}`}>
                         FloodWait: {details.recentFloodWaits}
+                      </Badge>
+                    )}
+                    {details.isRestricted && (
+                      <Badge variant="outline" className="text-[10px] text-orange-600 border-orange-500/30">
+                        ⚠️ مقيّد سبام
+                      </Badge>
+                    )}
+                    {details.canWriteToStranger !== undefined && !details.isRestricted && (
+                      <Badge variant="outline" className="text-[10px] text-emerald-600">
+                        ✓ يراسل الغرباء
+                      </Badge>
+                    )}
+                    {details.canAddToGroups !== undefined && !details.isRestricted && (
+                      <Badge variant="outline" className="text-[10px] text-emerald-600">
+                        ✓ يضيف أعضاء
                       </Badge>
                     )}
                     {details.sessionsCount !== undefined && (

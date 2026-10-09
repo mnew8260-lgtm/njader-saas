@@ -18,7 +18,7 @@ import { makeClient } from '@/lib/telegram/client';
 export interface BanCheckResult {
   ok: boolean;
   isBanned: boolean;
-  banType?: 'deactivated' | 'auth_failed' | 'write_banned' | 'flood_ban' | 'limited' | 'spam_ban' | 'read_banned' | 'session_invalid' | 'restricted';
+  banType?: 'deactivated' | 'auth_failed' | 'write_banned' | 'flood_ban' | 'limited' | 'spam_ban' | 'read_banned' | 'session_invalid' | 'restricted' | 'spam_restricted';
   reason?: string;
   limitedUntil?: Date;
   details?: {
@@ -26,12 +26,15 @@ export interface BanCheckResult {
     canWrite?: boolean;
     canInteract?: boolean;
     canResolve?: boolean;
+    canWriteToStranger?: boolean;
+    canAddToGroups?: boolean;
     has2FA?: boolean;
     sessionsCount?: number;
     floodWaitSeconds?: number;
     isPremium?: boolean;
     recentFloodWaits?: number;
     restrictionReason?: string;
+    isRestricted?: boolean;
   };
 }
 
@@ -149,10 +152,73 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
         await client.disconnect();
         return { ok: true, isBanned: true, banType: 'limited', reason: '⏱️ FloodWait عند البحث: ' + sec + 's', limitedUntil: new Date(Date.now() + sec * 1000), details: { ...details, floodWaitSeconds: sec } };
       }
-      // If username resolution fails with a ban-related error, mark as restricted
       if (errStr.includes('USER_PRIVACY') || errStr.includes('PEER_ID_INVALID')) {
         details.canInteract = false;
       }
+    }
+
+    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — THE KEY CHECK ═══
+    // Telegram sends a system message from "Telegram" (ID 777000) when a 
+    // account is spam-restricted. We check recent messages from Telegram.
+    // This detects the "مرحبًا! نعتذر... تم تقييد حسابكم" message.
+    try {
+      // Get recent messages from Telegram's official account (ID 777000)
+      const telegramEntity = await client.getInputEntity(777000);
+      const recentMsgs = await client.getMessages(telegramEntity, { limit: 5 });
+
+      let isSpamRestricted = false;
+      let restrictionText = '';
+
+      for (const msg of recentMsgs as any[]) {
+        const text = (msg.message || '').toLowerCase();
+        // Check for spam restriction keywords in multiple languages
+        if (
+          text.includes('spam') ||
+          text.includes('مزعج') ||
+          text.includes('تقييد') ||
+          text.includes('مُقيّد') ||
+          text.includes('مقيد') ||
+          text.includes('anti-spam') ||
+          text.includes('restricted') ||
+          text.includes('limitations') ||
+          text.includes('قيود') ||
+          text.includes('قد لا تتمكن') ||
+          text.includes('لا تتمكنون') ||
+          text.includes('مراسلة من لا') ||
+          text.includes('إضافتهم إلى المجموعات') ||
+          text.includes('nعتذر')
+        ) {
+          isSpamRestricted = true;
+          restrictionText = msg.message?.substring(0, 150) || '';
+          break;
+        }
+      }
+
+      details.isRestricted = isSpamRestricted;
+
+      if (isSpamRestricted) {
+        details.canWriteToStranger = false;
+        details.canAddToGroups = false;
+        details.restrictionReason = 'تقييد سبام — لا يمكن مراسلة الغرباء أو إضافة أعضاء';
+
+        await client.disconnect();
+        return {
+          ok: true,
+          isBanned: true,
+          banType: 'spam_restricted',
+          reason: '⚠️ تقييد سبام — الحساب مُقيّد من مراسلة الغرباء وإضافة الأعضاء للمجموعات',
+          details: {
+            ...details,
+            canInteract: false,
+            restrictionReason: restrictionText,
+          },
+        };
+      } else {
+        details.canWriteToStranger = true;
+        details.canAddToGroups = true;
+      }
+    } catch {
+      // If we can't check Telegram messages, skip this check
     }
 
     // ═══ CHECK 4: Check recent FloodWait history in DB ═══
