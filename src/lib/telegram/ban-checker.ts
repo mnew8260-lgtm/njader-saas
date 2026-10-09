@@ -151,25 +151,37 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       const msgs = await client.getMessages('SpamBot', { limit: 1 });
       const response = (msgs[0] as any)?.message || '';
 
-      const lowerResp = response.toLowerCase();
+      // ONLY flag as restricted if these SPECIFIC phrases appear:
+      // (Not just 'spam' which appears in normal responses too)
+      const restrictedPhrases = [
+        'تم تقييد حساب',
+        'تم تقييد',
+        'مُقيّد',
+        'حسابك مقيّد',
+        'حسابكم مقيّد',
+        'account is restricted',
+        'your account is restricted',
+        'account has been limited',
+        'your account is limited',
+        'you are restricted',
+      ];
 
-      // Check for restriction keywords in the response
-      if (
-        lowerResp.includes('مقيّد') ||
-        lowerResp.includes('مقيد') ||
-        lowerResp.includes('تقييد') ||
-        lowerResp.includes('restricted') ||
-        lowerResp.includes('limitation') ||
-        lowerResp.includes('limitations') ||
-        lowerResp.includes('spam') && !lowerResp.includes('no spam') ||
-        lowerResp.includes('anti-spam') ||
-        lowerResp.includes('قاسية') ||
-        lowerResp.includes('لا تتمكن') ||
-        lowerResp.includes('لا تتمكنون') ||
-        lowerResp.includes('مراسلة من لا') ||
-        lowerResp.includes('إضافتهم') ||
-        lowerResp.includes('عن طريق الخطأ')
-      ) {
+      // Phrases that indicate account is FREE (not restricted):
+      const freePhrases = [
+        'free to use',
+        'no limits',
+        'not restricted',
+        'حسابك حر',
+        'لا توجد قيود',
+        'لا توجد قيود على',
+        'you can use all',
+      ];
+
+      const lowerResp = response.toLowerCase();
+      const isRestricted = restrictedPhrases.some(p => lowerResp.includes(p.toLowerCase()));
+      const isFree = freePhrases.some(p => lowerResp.includes(p.toLowerCase()));
+
+      if (isRestricted && !isFree) {
         // Account IS restricted
         await client.disconnect();
 
@@ -191,51 +203,15 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
         };
       }
 
-      // If SpamBot says account is free/not restricted
-      if (lowerResp.includes('free') || lowerResp.includes('no restrictions') || lowerResp.includes('حسابك حر') || lowerResp.includes('not restricted')) {
-        details.canWrite = true;
-        details.canAddToGroups = true;
-        details.isRestricted = false;
-      } else {
-        // Unknown response — assume OK
-        details.canWrite = true;
-        details.canAddToGroups = true;
-        details.isRestricted = false;
-      }
+      // Account is NOT restricted
+      details.canWrite = true;
+      details.canAddToGroups = true;
+      details.isRestricted = false;
     } catch {
-      // If we can't message @SpamBot, try ImportContacts as fallback
-      try {
-        const testPhone = '+1555000' + Math.floor(Math.random() * 90000 + 10000);
-        await client.invoke(new Api.contacts.ImportContacts({
-          contacts: [new Api.InputPhoneContact({
-            clientId: BigInt(1),
-            phone: testPhone,
-            firstName: 'Test',
-            lastName: '',
-          })],
-        }));
-        details.canWrite = true;
-        details.canAddToGroups = true;
-        details.isRestricted = false;
-      } catch (e: any) {
-        const errStr = (e.message || String(e)).toUpperCase();
-        if (errStr.includes('PEER_FLOOD')) {
-          await client.disconnect();
-          if (account) {
-            await db.telegramAccount.update({ where: { id: account.id }, data: { status: 'banned' } }).catch(() => {});
-          }
-          return {
-            ok: true,
-            isBanned: true,
-            banType: 'spam_restricted',
-            reason: '🟠 تقييد سبام — PEER_FLOOD عند إضافة جهة اتصال',
-            details: { isRestricted: true, canWrite: false, canAddToGroups: false },
-          };
-        }
-        details.canWrite = true;
-        details.canAddToGroups = true;
-        details.isRestricted = false;
-      }
+      // If we can't message @SpamBot, skip — don't assume restricted
+      details.canWrite = true;
+      details.canAddToGroups = true;
+      details.isRestricted = false;
     }
   } catch (e: any) {
     try { await client.disconnect(); } catch {}
