@@ -12,7 +12,7 @@ import { sendCode } from '@/lib/telegram/client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Vercel Pro tier (10 for Hobby)
+export const maxDuration = 60; // Request up to 60s on Vercel Pro (Hobby gets 10s enforced)
 
 export async function POST(req: NextRequest) {
   const user = await getCurrentUser();

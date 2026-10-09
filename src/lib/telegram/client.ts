@@ -185,6 +185,7 @@ function buildProxyOption(proxy: {
 // ----------------------------------------------------------------------
 // Client factory — creates a fresh client each request (stateless!)
 // Auto-uses proxy (custom or auto-assigned) + API from pool
+// Falls back to direct connection if proxy fails
 // ----------------------------------------------------------------------
 export async function makeClient(
   phone: string,
@@ -203,33 +204,53 @@ export async function makeClient(
   // Get proxy (custom > auto-assigned > none)
   const proxy = await getProxyForAccount(phone);
 
-  const clientOptions: any = {
-    connectionRetries: 1,  // Only 1 retry to stay within Vercel timeout
-    useWSS: !proxy,
+  const baseOptions: any = {
+    connectionRetries: 1,
     deviceModel: 'njadder',
     systemVersion: '6.3',
     appVersion: 'njadder-saas/6.3',
     langCode: 'en',
     systemLangCode: 'en',
-    timeout: 6000,  // 6s per connection attempt (2 attempts = 12s max, but usually connects in 2-3s)
+    timeout: 5000,  // 5s timeout per attempt
     autoReconnect: false,
-    floodSleepThreshold: 0,  // Don't auto-sleep on flood
+    floodSleepThreshold: 0,
   };
 
-  // Add proxy if available
+  // Try with proxy first (if available)
   if (proxy) {
-    clientOptions.proxy = buildProxyOption(proxy);
+    try {
+      const clientOptions = {
+        ...baseOptions,
+        useWSS: false,  // proxy doesn't support WSS
+        proxy: buildProxyOption(proxy),
+      };
+      const client = new TelegramClient(stringSession, apiId, apiHash, clientOptions);
+
+      // Race connect with timeout
+      await Promise.race([
+        client.connect(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('PROXY_TIMEOUT')), 5000)),
+      ]);
+
+      return { client, apiId, apiHash, proxyUsed: `${proxy.type}://${proxy.host}:${proxy.port}` };
+    } catch {
+      // Proxy failed → fall back to direct connection
+      // Mark proxy as not working
+      await db.proxy.updateMany({
+        where: { host: proxy.host, port: proxy.port },
+        data: { isWorking: false, failCount: { increment: 1 } },
+      }).catch(() => {});
+    }
   }
 
-  const client = new TelegramClient(stringSession, apiId, apiHash, clientOptions);
+  // Direct connection (no proxy) — useWSS for Vercel compatibility
+  const client = new TelegramClient(stringSession, apiId, apiHash, {
+    ...baseOptions,
+    useWSS: true,  // WSS works on Vercel
+  });
 
   await client.connect();
-  return {
-    client,
-    apiId,
-    apiHash,
-    proxyUsed: proxy ? `${proxy.type}://${proxy.host}:${proxy.port}` : undefined,
-  };
+  return { client, apiId, apiHash, proxyUsed: undefined };
 }
 
 // ----------------------------------------------------------------------
