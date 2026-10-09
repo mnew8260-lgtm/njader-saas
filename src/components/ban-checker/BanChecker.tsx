@@ -164,45 +164,87 @@ export function BanChecker({ accounts }: { accounts: Account[] }) {
           const isBanned = result?.isBanned ?? lastCheck?.isBanned;
           const isHealthy = result?.ok && !result?.isBanned;
           const reason = result?.reason ?? lastCheck?.reason;
+          const banType = result?.banType;
+          const details = result?.details;
+
+          // More nuanced status
+          const isLimited = banType === 'limited' || banType === 'flood_ban';
+          const isWriteBanned = banType === 'write_banned' || banType === 'spam_ban';
+          const statusLabel = isBanned
+            ? (isLimited ? 'محدود' : isWriteBanned ? 'محظور كتابة' : banType === 'deactivated' ? 'معطّل' : 'محظور')
+            : isHealthy ? 'سليم' : 'غير مفحوص';
+          const statusColor = isBanned
+            ? (isLimited ? 'bg-amber-500 hover:bg-amber-600' : 'bg-red-500 hover:bg-red-600')
+            : isHealthy ? 'bg-emerald-500 hover:bg-emerald-600' : '';
 
           return (
             <Card key={a.id}>
-              <CardContent className="flex items-center justify-between gap-3 py-4">
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className={`size-10 rounded-full grid place-items-center ${
-                    isBanned ? 'bg-red-500/10' : isHealthy ? 'bg-emerald-500/10' : 'bg-zinc-500/10'
-                  }`}>
-                    {isBanned ? <ShieldAlert className="size-5 text-red-500" />
-                      : isHealthy ? <CheckCircle2 className="size-5 text-emerald-500" />
-                      : <AlertTriangle className="size-5 text-zinc-500" />}
+              <CardContent className="py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className={`size-10 rounded-full grid place-items-center shrink-0 ${
+                      isBanned
+                        ? (isLimited ? 'bg-amber-500/10' : 'bg-red-500/10')
+                        : isHealthy ? 'bg-emerald-500/10' : 'bg-zinc-500/10'
+                    }`}>
+                      {isBanned
+                        ? (isLimited ? <AlertTriangle className="size-5 text-amber-500" /> : <ShieldAlert className="size-5 text-red-500" />)
+                        : isHealthy ? <CheckCircle2 className="size-5 text-emerald-500" />
+                        : <AlertTriangle className="size-5 text-zinc-500" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium truncate text-sm">
+                        {a.fullName || a.username || a.phone}
+                      </p>
+                      <p className="text-xs text-muted-foreground font-mono" dir="ltr">{a.phone}</p>
+                      {reason && <p className="text-xs mt-0.5 ${
+                        isBanned ? (isLimited ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400') : 'text-muted-foreground'
+                      }">{reason}</p>}
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium truncate">
-                      {a.fullName || a.username || a.phone}
-                    </p>
-                    <p className="text-xs text-muted-foreground font-mono" dir="ltr">{a.phone}</p>
-                    {reason && <p className="text-xs text-muted-foreground mt-0.5">{reason}</p>}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge className={statusColor + ' text-xs'}>
+                      {statusLabel}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => checkOne(a.phone)}
+                      disabled={busy}
+                      className="h-8"
+                    >
+                      {busy && checkingPhone === a.phone ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                      فحص
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {isBanned ? (
-                    <Badge variant="destructive">محظور</Badge>
-                  ) : isHealthy ? (
-                    <Badge className="bg-emerald-500 hover:bg-emerald-600">سليم</Badge>
-                  ) : (
-                    <Badge variant="secondary">غير مفحوص</Badge>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => checkOne(a.phone)}
-                    disabled={busy}
-                    className="h-8"
-                  >
-                    {busy && !result ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-                    فحص
-                  </Button>
-                </div>
+
+                {/* Detailed checks */}
+                {details && result?.ok && (
+                  <div className="flex gap-1.5 flex-wrap mt-2 pt-2 border-t">
+                    <Badge variant="outline" className={`text-[10px] ${details.canWrite === false ? 'text-red-500 border-red-500/30' : 'text-emerald-600'}`}>
+                      {details.canWrite === false ? '❌ لا يكتب' : '✓ يكتب'}
+                    </Badge>
+                    {details.canResolve !== undefined && (
+                      <Badge variant="outline" className={`text-[10px] ${details.canResolve === false ? 'text-red-500 border-red-500/30' : 'text-emerald-600'}`}>
+                        {details.canResolve ? '✓ بحث' : '❌ بحث'}
+                      </Badge>
+                    )}
+                    {details.recentFloodWaits !== undefined && (
+                      <Badge variant="outline" className={`text-[10px] ${details.recentFloodWaits > 0 ? 'text-amber-600 border-amber-500/30' : 'text-emerald-600'}`}>
+                        FloodWait: {details.recentFloodWaits}
+                      </Badge>
+                    )}
+                    {details.sessionsCount !== undefined && (
+                      <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                        جلسات: {details.sessionsCount}
+                      </Badge>
+                    )}
+                    {details.isPremium && (
+                      <Badge variant="outline" className="text-[10px] text-amber-600">⭐ Premium</Badge>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           );
