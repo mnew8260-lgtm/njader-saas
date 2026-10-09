@@ -157,76 +157,70 @@ export async function quickCheckBan(phone: string): Promise<BanCheckResult> {
       }
     }
 
-    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — THE KEY CHECK ═══
-    // Telegram sends a system message from "Telegram" (ID 777000) when a 
-    // account is spam-restricted. We check recent messages from Telegram.
-    // This detects the "مرحبًا! نعتذر... تم تقييد حسابكم" message.
+    // ═══ CHECK 3.5: SPAM RESTRICTION CHECK — STRANGER MESSAGE TEST ═══
+    // The DEFINITIVE test: try to send a message to a stranger (@BotFather).
+    // If PEER_FLOOD → account is spam-restricted.
+    // Telegram's restriction message says: "قد لا تتمكنون من مراسلة من لا يمتلك رقم هاتفك"
+    // So if we can't message a stranger, the account IS restricted.
     try {
-      // Get recent messages from Telegram's official account (ID 777000)
-      // Read 20 messages (not just 5) — restriction message might be older
-      const telegramEntity = await client.getInputEntity(777000);
-      const recentMsgs = await client.getMessages(telegramEntity, { limit: 20 });
+      // @BotFather is a public bot (ID: 93372553) — always available
+      // We send a silent message, then delete it immediately
+      const testMsg = await client.sendMessage('@BotFather', {
+        message: '/start',
+        silent: true,
+      });
+      // Success! Account can message strangers → NOT restricted
+      details.canWriteToStranger = true;
+      details.canAddToGroups = true;
+      details.isRestricted = false;
 
-      let isSpamRestricted = false;
-      let restrictionText = '';
-
-      for (const msg of recentMsgs as any[]) {
-        const text = (msg.message || '').toLowerCase();
-        // Check for spam restriction keywords in multiple languages
-        if (
-          text.includes('spam') ||
-          text.includes('مزعج') ||
-          text.includes('تقييد') ||
-          text.includes('مُقيّد') ||
-          text.includes('مقيد') ||
-          text.includes('anti-spam') ||
-          text.includes('restricted') ||
-          text.includes('limitations') ||
-          text.includes('قيود') ||
-          text.includes('قد لا تتمكن') ||
-          text.includes('لا تتمكنون') ||
-          text.includes('مراسلة من لا') ||
-          text.includes('إضافتهم إلى المجموعات') ||
-          text.includes('nعتذر') ||
-          text.includes('nعتذر بشدة') ||
-          text.includes('استجابة قاسية') ||
-          text.includes('نظام مكافحة') ||
-          text.includes('spam protection') ||
-          text.includes('you can\'t send messages') ||
-          text.includes('can\'t write to') ||
-          text.includes('cannot message')
-        ) {
-          isSpamRestricted = true;
-          restrictionText = msg.message?.substring(0, 200) || '';
-          break;
-        }
+      // Delete the test message
+      if (testMsg && (testMsg as any).id) {
+        try { await client.deleteMessages('@BotFather', [(testMsg as any).id], { revoke: true }); } catch {}
       }
+    } catch (e: any) {
+      const errStr = (e.message || String(e)).toUpperCase();
+      details.canWriteToStranger = false;
+      details.canAddToGroups = false;
 
-      details.isRestricted = isSpamRestricted;
-
-      if (isSpamRestricted) {
-        details.canWriteToStranger = false;
-        details.canAddToGroups = false;
-        details.restrictionReason = 'تقييد سبام — لا يمكن مراسلة الغرباء أو إضافة أعضاء';
-
+      // PEER_FLOOD = definitive spam restriction
+      if (errStr.includes('PEER_FLOOD') || errStr.includes('PEERFLOOD')) {
         await client.disconnect();
         return {
           ok: true,
           isBanned: true,
           banType: 'spam_restricted',
-          reason: '⚠️ تقييد سبام — الحساب مُقيّد من مراسلة الغرباء وإضافة الأعضاء للمجموعات',
+          reason: '🟠 تقييد سبام — لا يمكن مراسلة الغرباء أو إضافة أعضاء (PEER_FLOOD)',
           details: {
             ...details,
-            canInteract: false,
-            restrictionReason: restrictionText,
+            isRestricted: true,
+            restrictionReason: 'تم تقييد الحساب من مراسلة من لا يملك رقم هاتفك',
           },
         };
+      }
+
+      // USER_BANNED_IN_CHANNEL = restricted from writing
+      if (errStr.includes('USER_BANNED_IN_CHANNEL') || errStr.includes('CHAT_WRITE_FORBIDDEN')) {
+        await client.disconnect();
+        return {
+          ok: true,
+          isBanned: true,
+          banType: 'spam_restricted',
+          reason: '🟠 تقييد كتابة — محظور من الإرسال للقنوات/المجموعات',
+          details: { ...details, isRestricted: true },
+        };
+      }
+
+      // If we can't message @BotFather but no specific error, still suspicious
+      if (!errStr.includes('BOT_BLOCKED') && !errStr.includes('USER_IS_BLOCKED')) {
+        details.isRestricted = true;
+        details.restrictionReason = 'لا يمكن مراسلة الغرباء: ' + errStr.substring(0, 60);
       } else {
+        // Bot blocked by user — not a restriction, just normal
         details.canWriteToStranger = true;
         details.canAddToGroups = true;
+        details.isRestricted = false;
       }
-    } catch {
-      // If we can't check Telegram messages, skip this check
     }
 
     // ═══ CHECK 4: Check recent FloodWait history in DB ═══
